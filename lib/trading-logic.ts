@@ -136,7 +136,7 @@ export function computeTradovateMetrics(
   const nt = new Set(row.nt_fields || [])
   function setField(key: keyof AccountRow, value: number) {
     if (onlyMissing && nt.has(key)) return
-    ;(row as Record<string, unknown>)[key] = value
+    ;(row as unknown as Record<string, unknown>)[key] = value
   }
 
   setField('drawdown_auto',      threshold)
