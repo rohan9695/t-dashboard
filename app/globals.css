@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* JetBrains Mono as the monospace stack */
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+}
+
+/* Smooth number transitions on PnL values */
+.metric-value {
+  transition: color 0.3s ease;
+}
+
+/* iOS safe area padding for home-screen PWA */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
