@@ -82,7 +82,7 @@ async function handleItemUpdate(
 
   const row = await fetchRow(supabase, accountId)
 
-  ;(row as Record<string, unknown>)[field] = value
+  ;(row as unknown as Record<string, unknown>)[field] = value
 
   // Track which fields NT8 sent (mirrors row["nt_fields"])
   if (!row.nt_fields.includes(field)) {
