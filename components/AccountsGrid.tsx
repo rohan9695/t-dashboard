@@ -1,10 +1,22 @@
 'use client'
-// components/AccountsGrid.tsx
-// Renders all account cards, marks the best day P&L with the crown (mirrors main.py).
-// Shows empty state when no accounts are connected.
 
 import { useRealtime } from './RealtimeProvider'
-import { AccountCard } from './AccountCard'
+import { AccountRow } from './AccountCard'
+
+const COLUMNS = [
+  { label: '',               align: 'left'  },
+  { label: 'Account',        align: 'left'  },
+  { label: 'Cash Value',     align: 'right' },
+  { label: 'Dist Daily Loss',align: 'right' },
+  { label: 'Drawdown Auto',  align: 'right' },
+  { label: 'Trailing Max',   align: 'right' },
+  { label: 'Dist Drawdown',  align: 'right' },
+  { label: 'Dollar Open',    align: 'right' },
+  { label: 'Realized P&L',  align: 'right' },
+  { label: 'Unrealized P&L',align: 'right' },
+  { label: 'Day P&L',        align: 'right' },
+  { label: 'Buffer',         align: 'right' },
+]
 
 export function AccountsGrid() {
   const { accounts } = useRealtime()
@@ -27,26 +39,38 @@ export function AccountsGrid() {
     )
   }
 
-  // Crown: account with best day P&L (mirrors main.py bestAcc logic)
-  let bestPnl  = -Infinity
+  let bestPnl = -Infinity
   let bestAccId: string | null = null
   for (const row of active) {
     const pnl = (row.realized_pnl || 0) + (row.unrealized_pnl || row.dollar_open || 0)
-    if (pnl > bestPnl) {
-      bestPnl  = pnl
-      bestAccId = row.account_id
-    }
+    if (pnl > bestPnl) { bestPnl = pnl; bestAccId = row.account_id }
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-      {active.map((row) => (
-        <AccountCard
-          key={row.account_id}
-          row={row}
-          isBest={active.length > 1 && row.account_id === bestAccId}
-        />
-      ))}
+    <div className="overflow-x-auto rounded-xl border border-zinc-800">
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="border-b border-zinc-700 bg-zinc-900/80">
+            {COLUMNS.map((col) => (
+              <th
+                key={col.label}
+                className={`px-3 py-2.5 text-[10px] uppercase tracking-widest text-zinc-500 font-semibold whitespace-nowrap ${col.align === 'right' ? 'text-right' : 'text-left'}`}
+              >
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((row) => (
+            <AccountRow
+              key={row.account_id}
+              row={row}
+              isBest={active.length > 1 && row.account_id === bestAccId}
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

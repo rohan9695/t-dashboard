@@ -1,67 +1,39 @@
 'use client'
-// components/AccountCard.tsx
-// Matches all fields shown in main.py's _DASHBOARD_HTML mobile cards:
-//   dollar_open, dist_to_daily_loss, drawdown_auto,
-//   total_available, trailing_max, dist_drawdown
-// Plus drawdown gauge and danger colouring from DANGER/CAUTION_THRESHOLD
 
 import { DANGER_THRESHOLD, CAUTION_THRESHOLD, type AccountRow } from '@/lib/trading-logic'
 
-function fmt(n: number) {
+export function fmt(n: number) {
   const v = n || 0
   const sign = v < 0 ? '-' : ''
-  return (
-    sign +
-    '$' +
-    Math.abs(v).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  )
+  return sign + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function fmtBalance(n: number) {
+export function fmtBalance(n: number) {
   const v = Math.round(n || 0)
   const sign = v < 0 ? '-' : ''
   return sign + '$' + Math.abs(v).toLocaleString('en-US')
 }
 
-function distColor(v: number) {
+export function distColor(v: number) {
   if (v <= DANGER_THRESHOLD)  return 'text-red-400'
   if (v <= CAUTION_THRESHOLD) return 'text-amber-400'
   return 'text-emerald-400'
 }
 
-function pnlColor(v: number) {
+export function pnlColor(v: number) {
   if (v > 0) return 'text-emerald-400'
   if (v < 0) return 'text-red-400'
   return 'text-zinc-400'
 }
 
-function secondsAgo(iso: string) {
+export function secondsAgo(iso: string) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
   if (s < 60)  return `${s}s ago`
   if (s < 120) return '1m ago'
   return `${Math.floor(s / 60)}m ago`
 }
 
-interface MetricProps {
-  label: string
-  value: string
-  className?: string
-}
-function Metric({ label, value, className = 'text-zinc-100' }: MetricProps) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-widest text-zinc-500 leading-tight">
-        {label}
-      </span>
-      <span className={`text-sm font-mono font-semibold ${className}`}>{value}</span>
-    </div>
-  )
-}
-
-export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean }) {
+export function AccountRow({ row, isBest }: { row: AccountRow; isBest: boolean }) {
   const {
     account_id,
     dollar_open,
@@ -77,107 +49,84 @@ export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean 
   } = row
 
   const dayPnl = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
-
-  // Drawdown gauge — dist_drawdown as % of trailing_max
-  const ddPct =
-    trailing_max > 0
-      ? Math.min(100, Math.max(0, (dist_drawdown / trailing_max) * 100))
-      : 0
-  const gaugeColor =
-    dist_drawdown <= DANGER_THRESHOLD
-      ? 'bg-red-500'
-      : dist_drawdown <= CAUTION_THRESHOLD
-        ? 'bg-amber-500'
-        : 'bg-emerald-500'
-
+  const totalPnl = dayPnl
   const isBreached = status === 'breached'
   const isStale    = status === 'stale'
 
+  const rowBg = isBreached
+    ? 'bg-red-950/30'
+    : isStale
+      ? 'bg-zinc-900/40 opacity-60'
+      : 'bg-zinc-900 hover:bg-zinc-800/60'
+
   return (
-    <div
-      className={[
-        'rounded-2xl border p-4 space-y-3 transition-all',
-        isBreached
-          ? 'border-red-500/50 bg-red-950/30'
-          : isStale
-            ? 'border-zinc-700/50 bg-zinc-900/60 opacity-60'
-            : dist_drawdown <= DANGER_THRESHOLD
-              ? 'border-red-500/40 bg-zinc-900'
-              : dist_drawdown <= CAUTION_THRESHOLD
-                ? 'border-amber-500/30 bg-zinc-900'
-                : 'border-zinc-800 bg-zinc-900',
-      ].join(' ')}
-    >
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {isBest && (
-            <span title="Best day P&L" className="text-base leading-none">
-              👑
-            </span>
-          )}
-          <p className="text-xs font-semibold text-zinc-100 break-all leading-tight font-mono">
-            {account_id}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span
-            className={[
-              'text-[10px] px-2 py-0.5 rounded-full font-semibold',
-              isBreached
-                ? 'bg-red-500/20 text-red-400'
-                : isStale
-                  ? 'bg-zinc-700/40 text-zinc-500'
-                  : 'bg-emerald-500/10 text-emerald-400',
-            ].join(' ')}
-          >
-            {isBreached ? 'BREACHED' : isStale ? 'STALE' : 'LIVE'}
-          </span>
-          <span className="text-[9px] text-zinc-600">{secondsAgo(last_update)}</span>
-        </div>
-      </div>
+    <tr className={`border-b border-zinc-800 transition-colors ${rowBg}`}>
+      {/* Status dot */}
+      <td className="px-3 py-3 w-8">
+        <span className={[
+          'inline-block w-2.5 h-2.5 rounded-full',
+          isBreached ? 'bg-red-500' : isStale ? 'bg-zinc-600' : 'bg-emerald-400',
+        ].join(' ')} />
+      </td>
 
-      {/* PnL summary */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-800/40 p-2.5">
-        <Metric label="Day P&L" value={fmt(dayPnl)} className={pnlColor(dayPnl)} />
-        <Metric label="Total Available" value={fmtBalance(total_available)} />
-      </div>
+      {/* Account ID */}
+      <td className="px-3 py-3 min-w-[160px]">
+        <div className="flex items-center gap-1.5">
+          {isBest && <span title="Best day P&L" className="text-sm">👑</span>}
+          <span className="text-xs font-mono font-semibold text-zinc-100 break-all">{account_id}</span>
+        </div>
+        <span className="text-[9px] text-zinc-600">{secondsAgo(last_update)}</span>
+      </td>
 
-      {/* Main metrics — mirrors mobile card in main.py */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-        <Metric
-          label="Dollar Open"
-          value={fmt(dollar_open)}
-          className={pnlColor(dollar_open)}
-        />
-        <Metric
-          label="Dist Daily Loss"
-          value={fmt(dist_to_daily_loss)}
-          className={distColor(dist_to_daily_loss)}
-        />
-        <Metric label="Drawdown Auto" value={fmt(drawdown_auto)} />
-        <Metric label="Trailing Max"  value={fmt(trailing_max)} />
-        <Metric
-          label="Dist Drawdown"
-          value={fmt(dist_drawdown)}
-          className={distColor(dist_drawdown)}
-        />
-        <Metric label="Realized P&L" value={fmt(realized_pnl)} className={pnlColor(realized_pnl)} />
-      </div>
+      {/* Cash Value / Total Available */}
+      <td className="px-3 py-3 text-right font-mono text-sm text-zinc-100">{fmtBalance(total_available)}</td>
+
+      {/* Dist Daily Loss */}
+      <td className={`px-3 py-3 text-right font-mono text-sm ${distColor(dist_to_daily_loss)}`}>{fmt(dist_to_daily_loss)}</td>
+
+      {/* Drawdown Auto */}
+      <td className="px-3 py-3 text-right font-mono text-sm text-zinc-300">{fmt(drawdown_auto)}</td>
+
+      {/* Trailing Max */}
+      <td className="px-3 py-3 text-right font-mono text-sm text-zinc-300">{fmt(trailing_max)}</td>
+
+      {/* Dist Drawdown */}
+      <td className={`px-3 py-3 text-right font-mono text-sm ${distColor(dist_drawdown)}`}>{fmt(dist_drawdown)}</td>
+
+      {/* Dollar Open / Unrealized */}
+      <td className={`px-3 py-3 text-right font-mono text-sm ${pnlColor(dollar_open)}`}>{fmt(dollar_open)}</td>
+
+      {/* Realized P&L */}
+      <td className={`px-3 py-3 text-right font-mono text-sm ${pnlColor(realized_pnl)}`}>{fmt(realized_pnl)}</td>
+
+      {/* Unrealized P&L */}
+      <td className={`px-3 py-3 text-right font-mono text-sm ${pnlColor(unrealized_pnl)}`}>{fmt(unrealized_pnl)}</td>
+
+      {/* Day P&L */}
+      <td className={`px-3 py-3 text-right font-mono text-sm font-semibold ${pnlColor(dayPnl)}`}>{fmt(dayPnl)}</td>
 
       {/* Drawdown gauge */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-[9px] text-zinc-600">
-          <span>Drawdown buffer</span>
-          <span className="font-mono">{ddPct.toFixed(1)}%</span>
+      <td className="px-3 py-3 w-24">
+        <div className="flex flex-col gap-1">
+          <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+            <div
+              className={[
+                'h-full rounded-full transition-all duration-700',
+                dist_drawdown <= DANGER_THRESHOLD ? 'bg-red-500' : dist_drawdown <= CAUTION_THRESHOLD ? 'bg-amber-500' : 'bg-emerald-500',
+              ].join(' ')}
+              style={{ width: `${trailing_max > 0 ? Math.min(100, Math.max(0, (dist_drawdown / trailing_max) * 100)) : 0}%` }}
+            />
+          </div>
+          <span className="text-[9px] text-zinc-600 font-mono text-right">
+            {trailing_max > 0 ? ((dist_drawdown / trailing_max) * 100).toFixed(1) : '0.0'}%
+          </span>
         </div>
-        <div className="h-1 w-full rounded-full bg-zinc-800 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${gaugeColor}`}
-            style={{ width: `${ddPct}%` }}
-          />
-        </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   )
+}
+
+// Keep AccountCard as alias for backward compat
+export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean }) {
+  return <AccountRow row={row} isBest={isBest} />
 }
