@@ -87,6 +87,51 @@ create policy "auth_read_conn_logs"
 -- Service-role key (used by /api/update) bypasses RLS automatically —
 -- no extra policy needed.
 
+-- ── ACCESS LOGS (Task 2A) ───────────────────────────────────
+-- Written async by middleware on every /api/* hit
+create table if not exists access_logs (
+  id         uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  ip         text not null,
+  route      text not null,
+  method     text not null,
+  success    boolean not null default false
+);
+
+create index if not exists access_logs_ip_created_idx on access_logs(ip, created_at desc);
+create index if not exists access_logs_created_idx    on access_logs(created_at desc);
+
+alter table access_logs enable row level security;
+
+-- ── PASSKEY CREDENTIALS (Task 2B) ───────────────────────────
+-- Stores WebAuthn public-key credentials per device
+create table if not exists passkey_credentials (
+  id             uuid primary key default gen_random_uuid(),
+  credential_id  text not null unique,
+  public_key     text not null,         -- base64
+  counter        bigint not null default 0,
+  device_type    text,                  -- 'singleDevice' | 'multiDevice'
+  backed_up      boolean default false,
+  transports     text[] default '{}',
+  created_at     timestamptz default now()
+);
+
+alter table passkey_credentials enable row level security;
+-- Only service-role key can read/write
+
+-- ── APP SETTINGS (Task 2C killswitch) ───────────────────────
+create table if not exists app_settings (
+  key        text primary key,
+  value      text not null,
+  updated_at timestamptz default now()
+);
+
+-- Seed killswitch default to off
+insert into app_settings (key, value) values ('killswitch', 'false')
+  on conflict (key) do nothing;
+
+alter table app_settings enable row level security;
+
 -- ── WARMUP LOG ──────────────────────────────────────────────
 -- Written by the Supabase keep-warm Edge Function (Task 1A)
 create table if not exists warmup_log (

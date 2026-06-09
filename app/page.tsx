@@ -10,6 +10,8 @@ import { StatusBar } from '@/components/StatusBar'
 import { SummaryBar } from '@/components/SummaryBar'
 import { AccountsGrid } from '@/components/AccountsGrid'
 import { StaleBanner } from '@/components/StaleBanner'
+import { KillswitchBanner } from '@/components/KillswitchBanner'
+import { WebAuthnGate } from '@/components/WebAuthnGate'
 
 export const revalidate = 0 // always fresh on server render
 
@@ -34,33 +36,38 @@ export default async function DashboardPage() {
   const initialAccounts = await getInitialAccounts()
 
   return (
-    <RealtimeProvider initialAccounts={initialAccounts}>
-      <div className="min-h-screen flex flex-col">
-        {/* Header */}
-        <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3">
-          <StatusBar />
-        </header>
+    <WebAuthnGate>
+      <RealtimeProvider initialAccounts={initialAccounts}>
+        <div className="min-h-screen flex flex-col">
+          {/* Killswitch banner — red, always on top */}
+          <KillswitchBanner />
 
-        {/* Amber stale-data banner — auto-dismisses on fresh data */}
-        <StaleBanner />
+          {/* Header */}
+          <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3">
+            <StatusBar />
+          </header>
 
-        <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
-          {/* Summary stats — mirrors three stat cards from main.py */}
-          <SummaryBar />
+          {/* Amber stale-data banner — auto-dismisses on fresh data */}
+          <StaleBanner />
 
-          {/* Account cards grid */}
-          <section>
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-3">
-              All Accounts
-            </h2>
-            <AccountsGrid />
-          </section>
-        </main>
+          <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
+            {/* Summary stats */}
+            <SummaryBar />
 
-        <footer className="text-center text-[10px] text-zinc-700 py-4 border-t border-zinc-800/40">
-          Trader Dashboard · Live from NinjaTrader
-        </footer>
-      </div>
-    </RealtimeProvider>
+            {/* Account cards grid */}
+            <section>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-3">
+                All Accounts
+              </h2>
+              <AccountsGrid />
+            </section>
+          </main>
+
+          <footer className="text-center text-[10px] text-zinc-700 py-4 border-t border-zinc-800/40">
+            Trader Dashboard · Live from NinjaTrader
+          </footer>
+        </div>
+      </RealtimeProvider>
+    </WebAuthnGate>
   )
 }
