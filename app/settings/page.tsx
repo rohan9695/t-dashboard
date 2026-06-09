@@ -1,0 +1,142 @@
+'use client'
+// app/settings/page.tsx
+// Settings page — gear icon in header opens this.
+// Toggles save instantly to Supabase user_preferences.
+// Feature code paths are skipped when OFF.
+
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import {
+  PREFERENCE_DEFAULTS,
+  PREFERENCE_LABELS,
+  type PreferenceKey,
+} from '@/lib/preferences'
+
+type PrefsState = Record<PreferenceKey, boolean>
+
+const SECTIONS: Array<{
+  title: string
+  keys: PreferenceKey[]
+}> = [
+  {
+    title: 'Notifications',
+    keys: ['toast_notifications', 'haptic_alerts', 'heartbeat_monitor'],
+  },
+  {
+    title: 'Display',
+    keys: ['balance_hidden_default', 'grey_disconnected', 'health_score_column', 'skull_indicator'],
+  },
+  {
+    title: 'Risk Controls',
+    keys: ['auto_risk_lockout', 'account_quarantine', 'session_auto_lockout'],
+  },
+  {
+    title: 'Analytics',
+    keys: [
+      'trade_journal', 'daily_pnl_snapshot', 'equity_curve',
+      'profit_factor', 'win_rate_heatmap', 'pnl_calendar', 'ai_pattern_detection',
+    ],
+  },
+]
+
+export default function SettingsPage() {
+  const router = useRouter()
+  const [prefs, setPrefs] = useState<PrefsState>({ ...PREFERENCE_DEFAULTS })
+  const [saving, setSaving] = useState<Set<PreferenceKey>>(new Set())
+  const supabase = createClient()
+
+  // Load preferences from Supabase on mount
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase
+        .from('user_preferences')
+        .select('preference_key, value')
+      if (!data) return
+      setPrefs((prev) => {
+        const next = { ...prev }
+        for (const row of data) {
+          const key = row.preference_key as PreferenceKey
+          if (key in PREFERENCE_DEFAULTS) {
+            next[key] = Boolean((row.value as { v: boolean }).v)
+          }
+        }
+        return next
+      })
+    }
+    load()
+  }, [supabase])
+
+  const toggle = useCallback(async (key: PreferenceKey) => {
+    const newVal = !prefs[key]
+    setPrefs((p) => ({ ...p, [key]: newVal }))
+    setSaving((s) => new Set(s).add(key))
+
+    await supabase
+      .from('user_preferences')
+      .upsert({ preference_key: key, value: { v: newVal }, updated_at: new Date().toISOString() }, { onConflict: 'preference_key' })
+
+    setSaving((s) => { const n = new Set(s); n.delete(key); return n })
+  }, [prefs, supabase])
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header */}
+      <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3 flex items-center gap-3">
+        <button
+          onClick={() => router.back()}
+          className="min-h-[44pt] min-w-[44pt] flex items-center justify-center text-zinc-400 hover:text-zinc-200 -ml-2"
+          aria-label="Back"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <h1 className="text-lg font-bold tracking-tight">Settings</h1>
+      </header>
+
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-8">
+        {SECTIONS.map((section) => (
+          <div key={section.title}>
+            <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-3 px-1">
+              {section.title}
+            </h2>
+            <div className="space-y-1">
+              {section.keys.map((key) => {
+                const { label, description } = PREFERENCE_LABELS[key]
+                const isOn  = prefs[key]
+                const isSaving = saving.has(key)
+
+                return (
+                  <div
+                    key={key}
+                    className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 min-h-[62px]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-zinc-100 leading-tight">{label}</p>
+                      <p className="text-[11px] text-zinc-500 mt-0.5 leading-tight">{description}</p>
+                    </div>
+                    <button
+                      onClick={() => toggle(key)}
+                      disabled={isSaving}
+                      aria-label={`${isOn ? 'Disable' : 'Enable'} ${label}`}
+                      className={`shrink-0 w-12 h-7 rounded-full transition-colors duration-200 ${isOn ? 'bg-emerald-500' : 'bg-zinc-700'} ${isSaving ? 'opacity-60' : ''}`}
+                    >
+                      <div
+                        className={`w-5 h-5 rounded-full bg-white mx-1 transition-transform duration-200 ${isOn ? 'translate-x-5' : 'translate-x-0'}`}
+                      />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+
+        <p className="text-[10px] text-zinc-700 text-center pb-4">
+          Changes save instantly · Trader Dashboard
+        </p>
+      </div>
+    </div>
+  )
+}
