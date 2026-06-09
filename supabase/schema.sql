@@ -162,6 +162,25 @@ create table if not exists user_preferences (
 
 alter table user_preferences enable row level security;
 
+-- ── ACCOUNT EVENTS (Task 5) ─────────────────────────────────
+-- Risk breach readings, auto-lockouts, quarantine events
+create table if not exists account_events (
+  id          uuid primary key default gen_random_uuid(),
+  account_id  text references accounts(account_id) on delete cascade,
+  event_type  text not null
+    check (event_type in ('risk_breach','auto_locked','manual_unlock','quarantined','dequarantined','session_locked')),
+  message     text,
+  occurred_at timestamptz default now()
+);
+
+create index if not exists account_events_account_idx on account_events(account_id, occurred_at desc);
+alter table account_events enable row level security;
+
+-- Add locked/quarantined columns to accounts (run ALTER separately if table exists)
+-- alter table accounts add column if not exists locked boolean default false;
+-- alter table accounts add column if not exists quarantined boolean default false;
+-- alter table accounts add column if not exists last_seen_at timestamptz;
+
 -- ── WARMUP LOG ──────────────────────────────────────────────
 -- Written by the Supabase keep-warm Edge Function (Task 1A)
 create table if not exists warmup_log (

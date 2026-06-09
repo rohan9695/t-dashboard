@@ -10,6 +10,7 @@ import { KillswitchBanner } from '@/components/KillswitchBanner'
 import { WebAuthnGate } from '@/components/WebAuthnGate'
 import { ToastProvider } from '@/components/ToastProvider'
 import { VisibilityProvider } from '@/components/VisibilityProvider'
+import { HeartbeatMonitor } from '@/components/HeartbeatMonitor'
 
 export const revalidate = 0
 
@@ -43,6 +44,7 @@ export default async function DashboardPage() {
                 <StatusBar />
               </header>
 
+              <HeartbeatMonitor />
               <StaleBanner />
 
               <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">

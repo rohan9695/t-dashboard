@@ -63,6 +63,66 @@ async function upsertRow(
   if (error) throw new Error(error.message)
 }
 
+// ── Auto risk lockout (Task 5) ────────────────────────────────────────────────
+// Returns true if the account is locked and the update should be skipped.
+async function checkRiskLockout(
+  supabase: ReturnType<typeof createServiceClient>,
+  accountId: string,
+  row: AccountRow,
+): Promise<boolean> {
+  // Fetch last 3 events to count consecutive bad readings
+  const { data: events } = await supabase
+    .from('account_events')
+    .select('event_type')
+    .eq('account_id', accountId)
+    .order('occurred_at', { ascending: false })
+    .limit(3)
+
+  if (!events || events.length < 3) return false
+
+  const allBad = events.every((e) => e.event_type === 'risk_breach')
+  if (!allBad) return false
+
+  // Check if already locked
+  const { data: acct } = await supabase
+    .from('accounts')
+    .select('locked')
+    .eq('account_id', accountId)
+    .single()
+
+  if ((acct as Record<string, unknown> | null)?.locked === true) return true
+
+  // Lock it
+  await supabase
+    .from('accounts')
+    .update({ locked: true } as unknown as AccountRow)
+    .eq('account_id', accountId)
+
+  await supabase.from('account_events').insert({
+    account_id:  accountId,
+    event_type:  'auto_locked',
+    message:     '3 consecutive risk breach readings',
+    occurred_at: new Date().toISOString(),
+  })
+
+  return true
+}
+
+// ── Log account event ─────────────────────────────────────────────────────────
+async function logEvent(
+  supabase: ReturnType<typeof createServiceClient>,
+  accountId: string,
+  eventType: string,
+  message: string,
+): Promise<void> {
+  await supabase.from('account_events').insert({
+    account_id:  accountId,
+    event_type:  eventType,
+    message,
+    occurred_at: new Date().toISOString(),
+  })
+}
+
 // ── Handlers (mirror main.py apply_* functions) ───────────────────────────────
 
 async function handleItemUpdate(
@@ -176,15 +236,33 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
+  // Check if account is auto-locked before processing
+  const accountId = String(body.account)
+  const isLocked = await checkRiskLockout(supabase, accountId, await fetchRow(supabase, accountId))
+  if (isLocked) {
+    return NextResponse.json({ status: 'locked', reason: 'auto_risk_lockout' })
+  }
+
   try {
     // Route to correct handler — same logic as main.py @app.post("/update")
+    let result: NextResponse
     if ('item' in body) {
-      return await handleItemUpdate(supabase, body)
+      result = await handleItemUpdate(supabase, body)
+    } else if ('total_available' in body && 'drawdown_auto' in body) {
+      result = await handleSnapshot(supabase, body)
+    } else {
+      result = await handleFullUpdate(supabase, body)
     }
-    if ('total_available' in body && 'drawdown_auto' in body) {
-      return await handleSnapshot(supabase, body)
+
+    // Log risk breach event if account is breached (for auto-lockout tracking)
+    const updatedRow = await fetchRow(supabase, accountId)
+    if (updatedRow.status === 'breached') {
+      logEvent(supabase, accountId, 'risk_breach',
+        `dist_drawdown=${updatedRow.dist_drawdown} dist_daily=${updatedRow.dist_to_daily_loss}`
+      )
     }
-    return await handleFullUpdate(supabase, body)
+
+    return result
   } catch (err) {
     console.error('[update] error:', err)
     return NextResponse.json({ detail: String(err) }, { status: 500 })
