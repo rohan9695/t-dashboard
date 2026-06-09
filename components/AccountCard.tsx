@@ -1,6 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { DANGER_THRESHOLD, CAUTION_THRESHOLD, type AccountRow } from '@/lib/trading-logic'
+
+const STALE_MS = 60_000 // 60 s — amber threshold
 
 export function fmt(n: number) {
   const v = n || 0
@@ -26,14 +29,16 @@ export function pnlColor(v: number) {
   return 'text-zinc-400'
 }
 
-export function secondsAgo(iso: string) {
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60)  return `${s}s ago`
-  if (s < 120) return '1m ago'
-  return `${Math.floor(s / 60)}m ago`
+// Returns human-readable age string and whether data is stale (>60s)
+export function secondsAgo(iso: string, now = Date.now()): { text: string; stale: boolean } {
+  const s = Math.floor((now - new Date(iso).getTime()) / 1_000)
+  const stale = s >= 60
+  if (s < 60)  return { text: `${s}s ago`, stale }
+  if (s < 120) return { text: '1m ago', stale }
+  return { text: `${Math.floor(s / 60)}m ago`, stale }
 }
 
-export function AccountRow({ row, isBest }: { row: AccountRow; isBest: boolean }) {
+export function AccountRow({ row, isBest, now }: { row: AccountRow; isBest: boolean; now: number }) {
   const {
     account_id,
     dollar_open,
@@ -49,9 +54,10 @@ export function AccountRow({ row, isBest }: { row: AccountRow; isBest: boolean }
   } = row
 
   const dayPnl = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
-  const totalPnl = dayPnl
   const isBreached = status === 'breached'
   const isStale    = status === 'stale'
+
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
 
   const rowBg = isBreached
     ? 'bg-red-950/30'
@@ -75,7 +81,9 @@ export function AccountRow({ row, isBest }: { row: AccountRow; isBest: boolean }
           {isBest && <span title="Best day P&L" className="text-sm">👑</span>}
           <span className="text-xs font-mono font-semibold text-zinc-100 break-all">{account_id}</span>
         </div>
-        <span className="text-[9px] text-zinc-600">{secondsAgo(last_update)}</span>
+        <span className={`text-[9px] ${isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
+          {ageText}
+        </span>
       </td>
 
       {/* Cash Value / Total Available */}
@@ -128,5 +136,10 @@ export function AccountRow({ row, isBest }: { row: AccountRow; isBest: boolean }
 
 // Keep AccountCard as alias for backward compat
 export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean }) {
-  return <AccountRow row={row} isBest={isBest} />
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5_000)
+    return () => clearInterval(id)
+  }, [])
+  return <AccountRow row={row} isBest={isBest} now={now} />
 }

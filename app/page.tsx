@@ -9,6 +9,7 @@ import { RealtimeProvider } from '@/components/RealtimeProvider'
 import { StatusBar } from '@/components/StatusBar'
 import { SummaryBar } from '@/components/SummaryBar'
 import { AccountsGrid } from '@/components/AccountsGrid'
+import { StaleBanner } from '@/components/StaleBanner'
 
 export const revalidate = 0 // always fresh on server render
 
@@ -39,6 +40,9 @@ export default async function DashboardPage() {
         <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3">
           <StatusBar />
         </header>
+
+        {/* Amber stale-data banner — auto-dismisses on fresh data */}
+        <StaleBanner />
 
         <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
           {/* Summary stats — mirrors three stat cards from main.py */}

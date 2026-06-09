@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
 import { AccountRow } from './AccountCard'
 
@@ -18,12 +19,73 @@ const COLUMNS = [
   { label: 'Buffer',         align: 'right' },
 ]
 
+const COL_COUNT = COLUMNS.length
+
+// Skeleton placeholder row shown while data loads
+function SkeletonRow() {
+  return (
+    <tr className="border-b border-zinc-800 animate-pulse">
+      <td className="px-3 py-4 w-8">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-700" />
+      </td>
+      <td className="px-3 py-4 min-w-[160px]">
+        <div className="h-2.5 bg-zinc-700 rounded w-36 mb-2" />
+        <div className="h-2 bg-zinc-800 rounded w-14" />
+      </td>
+      {Array.from({ length: COL_COUNT - 2 }).map((_, i) => (
+        <td key={i} className="px-3 py-4">
+          <div className="h-2.5 bg-zinc-800 rounded w-16 ml-auto" />
+        </td>
+      ))}
+    </tr>
+  )
+}
+
 export function AccountsGrid() {
-  const { accounts } = useRealtime()
+  const { accounts, loading } = useRealtime()
+
+  // Tick every 5 s so "Xs ago" timestamps stay roughly accurate without a
+  // timer inside every row
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5_000)
+    return () => clearInterval(id)
+  }, [])
 
   const active = accounts
     .filter((a) => a.status !== 'stale')
     .sort((a, b) => a.account_id.localeCompare(b.account_id))
+
+  const tableHeader = (
+    <thead>
+      <tr className="border-b border-zinc-700 bg-zinc-900/80">
+        {COLUMNS.map((col) => (
+          <th
+            key={col.label}
+            className={`px-3 py-2.5 text-[10px] uppercase tracking-widest text-zinc-500 font-semibold whitespace-nowrap ${col.align === 'right' ? 'text-right' : 'text-left'}`}
+          >
+            {col.label}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  )
+
+  // Show skeleton rows on first load (no data yet)
+  if (loading && active.length === 0) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        <table className="w-full text-left border-collapse">
+          {tableHeader}
+          <tbody>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   if (active.length === 0) {
     return (
@@ -49,24 +111,14 @@ export function AccountsGrid() {
   return (
     <div className="overflow-x-auto rounded-xl border border-zinc-800">
       <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="border-b border-zinc-700 bg-zinc-900/80">
-            {COLUMNS.map((col) => (
-              <th
-                key={col.label}
-                className={`px-3 py-2.5 text-[10px] uppercase tracking-widest text-zinc-500 font-semibold whitespace-nowrap ${col.align === 'right' ? 'text-right' : 'text-left'}`}
-              >
-                {col.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
+        {tableHeader}
         <tbody>
           {active.map((row) => (
             <AccountRow
               key={row.account_id}
               row={row}
               isBest={active.length > 1 && row.account_id === bestAccId}
+              now={now}
             />
           ))}
         </tbody>

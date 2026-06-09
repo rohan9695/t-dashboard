@@ -87,6 +87,22 @@ create policy "auth_read_conn_logs"
 -- Service-role key (used by /api/update) bypasses RLS automatically —
 -- no extra policy needed.
 
+-- ── WARMUP LOG ──────────────────────────────────────────────
+-- Written by the Supabase keep-warm Edge Function (Task 1A)
+create table if not exists warmup_log (
+  id           uuid primary key default gen_random_uuid(),
+  pinged_at    timestamptz not null default now(),
+  status       text not null,   -- 'ok' | 'http_NNN' | 'error'
+  response_ms  integer not null default 0
+);
+
+create index if not exists warmup_log_pinged_at_idx on warmup_log(pinged_at desc);
+
+alter table warmup_log enable row level security;
+-- Only service-role key can write; no read policy needed for anon
+-- (read it directly from Supabase dashboard when debugging)
+
+
 -- ── REALTIME ─────────────────────────────────────────────────
 -- Enable Realtime for the tables the dashboard subscribes to
 alter publication supabase_realtime add table accounts;

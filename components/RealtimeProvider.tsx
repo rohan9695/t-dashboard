@@ -1,10 +1,12 @@
 'use client'
 // components/RealtimeProvider.tsx
-// Subscribes to Supabase Realtime on the accounts table.
-// Replaces the 5-second polling loop in main.py's dashboard JS.
+// Manages Supabase Realtime subscription + forced refresh on foreground.
+// On visibilitychange (hidden → visible): fetches fresh snapshot then
+// explicitly unsubscribes and resubscribes — never relies on auto-reconnect.
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -17,12 +19,16 @@ interface RealtimeCtx {
   accounts: AccountRow[]
   connected: boolean
   lastUpdate: Date | null
+  loading: boolean
+  refresh: () => Promise<void>
 }
 
 const Ctx = createContext<RealtimeCtx>({
   accounts: [],
   connected: false,
   lastUpdate: null,
+  loading: true,
+  refresh: async () => {},
 })
 
 export function useRealtime() {
@@ -39,12 +45,26 @@ export function RealtimeProvider({
   const [accounts, setAccounts] = useState<AccountRow[]>(initialAccounts)
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const supabase = createClient()
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  // Only show loading skeleton if we have no initial data
+  const [loading, setLoading] = useState(initialAccounts.length === 0)
 
-  useEffect(() => {
+  // Stable supabase client — never recreated across renders
+  const supabaseRef = useRef(createClient())
+  const channelRef = useRef<ReturnType<typeof supabaseRef.current.channel> | null>(null)
+
+  const subscribe = useCallback(() => {
+    const supabase = supabaseRef.current
+
+    // Tear down any existing channel before creating a new one
+    if (channelRef.current) {
+      channelRef.current.unsubscribe()
+      channelRef.current = null
+      setConnected(false)
+    }
+
+    // Unique channel name prevents Supabase from reusing a stale socket
     const channel = supabase
-      .channel('accounts-live')
+      .channel(`accounts-live-${Date.now()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'accounts' },
@@ -65,6 +85,7 @@ export function RealtimeProvider({
           })
 
           setLastUpdate(new Date())
+          setLoading(false)
         },
       )
       .subscribe((status) => {
@@ -72,14 +93,56 @@ export function RealtimeProvider({
       })
 
     channelRef.current = channel
+  }, []) // deps intentionally empty — reads only stable refs
 
-    return () => {
-      channel.unsubscribe()
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data } = await supabaseRef.current
+        .from('accounts')
+        .select('*')
+        .order('account_id')
+
+      if (data) {
+        setAccounts(data as AccountRow[])
+        setLastUpdate(new Date())
+      }
+    } catch {
+      // Keep existing data on error; let realtime re-sync
+    } finally {
+      setLoading(false)
+      // Always re-establish a fresh realtime channel after fetch
+      subscribe()
     }
-  }, [])
+  }, [subscribe])
+
+  // Initial subscription on mount
+  useEffect(() => {
+    subscribe()
+    return () => {
+      channelRef.current?.unsubscribe()
+    }
+  }, [subscribe])
+
+  // Force refresh when app returns to foreground
+  useEffect(() => {
+    let wasHidden = false
+
+    function handleVisibility() {
+      if (document.hidden) {
+        wasHidden = true
+      } else if (wasHidden) {
+        wasHidden = false
+        refresh()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [refresh])
 
   return (
-    <Ctx.Provider value={{ accounts, connected, lastUpdate }}>
+    <Ctx.Provider value={{ accounts, connected, lastUpdate, loading, refresh }}>
       {children}
     </Ctx.Provider>
   )
