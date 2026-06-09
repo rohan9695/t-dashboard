@@ -206,6 +206,19 @@ alter table warmup_log enable row level security;
 -- (read it directly from Supabase dashboard when debugging)
 
 
+-- ── AI INSIGHTS (Task 7) ────────────────────────────────────
+create table if not exists ai_insights (
+  id           uuid primary key default gen_random_uuid(),
+  summary      text not null,
+  patterns     text[] not null default '{}',
+  trade_count  integer not null default 0,
+  generated_at timestamptz not null default now()
+);
+
+create index if not exists ai_insights_generated_idx on ai_insights(generated_at desc);
+alter table ai_insights enable row level security;
+create policy "anon_read_ai_insights" on ai_insights for select using (true);
+
 -- ── REALTIME ─────────────────────────────────────────────────
 -- Enable Realtime for the tables the dashboard subscribes to
 alter publication supabase_realtime add table accounts;

@@ -62,6 +62,17 @@ export function StatusBar() {
 
         <span className="text-xs font-mono text-zinc-500">{clock}</span>
 
+        {/* Analytics — 44pt tap target */}
+        <Link
+          href="/analytics"
+          aria-label="Analytics"
+          className="flex items-center justify-center min-h-[44pt] min-w-[44pt] text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+        </Link>
+
         {/* Settings gear — 44pt tap target */}
         <Link
           href="/settings"
