@@ -162,6 +162,15 @@ create table if not exists user_preferences (
 
 alter table user_preferences enable row level security;
 
+-- ── TASK 6: Tradovate live columns on accounts ──────────────
+-- Run these ALTER statements after table creation:
+-- alter table accounts add column if not exists tradovate_trailing_drawdown numeric(14,2);
+-- alter table accounts add column if not exists tradovate_realized_pnl      numeric(14,2);
+-- alter table accounts add column if not exists tradovate_unrealized_pnl    numeric(14,2);
+-- alter table accounts add column if not exists tradovate_margin_used       numeric(14,2);
+-- alter table accounts add column if not exists tradovate_daily_pnl         numeric(14,2);
+-- alter table accounts add column if not exists tradovate_synced_at         timestamptz;
+
 -- ── ACCOUNT EVENTS (Task 5) ─────────────────────────────────
 -- Risk breach readings, auto-lockouts, quarantine events
 create table if not exists account_events (

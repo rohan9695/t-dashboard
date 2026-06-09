@@ -6,23 +6,30 @@
 // ── ITEM MAP ────────────────────────────────────────────────────────────────
 // NinjaTrader AccountItem names → dashboard field names
 export const ITEM_MAP: Record<string, string> = {
-  NetLiquidation:          'total_available',
-  TotalAvailable:          'total_available',
-  CashValue:               'total_available',
-  DollarOpen:              'dollar_open',
-  OpenPnL:                 'dollar_open',
-  UnrealizedProfitLoss:    'unrealized_pnl',
-  DistToDailyLoss:         'dist_to_daily_loss',
-  DailyLossRemaining:      'dist_to_daily_loss',
-  DistanceToDailyLoss:     'dist_to_daily_loss',
-  DrawdownAuto:            'drawdown_auto',
-  DrawDownAuto:            'drawdown_auto',
-  TrailingMax:             'trailing_max',
-  TrailingThreshold:       'trailing_max',
-  DistDrawdown:            'dist_drawdown',
-  DistanceToDrawdown:      'dist_drawdown',
-  RealizedProfitLoss:      'realized_pnl',
-  GrossRealizedProfitLoss: 'realized_pnl',
+  // Existing NT8 items
+  NetLiquidation:            'total_available',
+  TotalAvailable:            'total_available',
+  CashValue:                 'total_available',
+  DollarOpen:                'dollar_open',
+  OpenPnL:                   'dollar_open',
+  UnrealizedProfitLoss:      'unrealized_pnl',
+  DistToDailyLoss:           'dist_to_daily_loss',
+  DailyLossRemaining:        'dist_to_daily_loss',
+  DistanceToDailyLoss:       'dist_to_daily_loss',
+  DrawdownAuto:              'drawdown_auto',
+  DrawDownAuto:              'drawdown_auto',
+  TrailingMax:               'trailing_max',
+  TrailingThreshold:         'trailing_max',
+  DistDrawdown:              'dist_drawdown',
+  DistanceToDrawdown:        'dist_drawdown',
+  RealizedProfitLoss:        'realized_pnl',
+  GrossRealizedProfitLoss:   'realized_pnl',
+  // Task 6: new Tradovate fields from NT8 addon
+  TrailingDrawdownValue:     'tradovate_trailing_drawdown',
+  RealizedPnL:               'tradovate_realized_pnl',
+  UnrealizedPnL:             'tradovate_unrealized_pnl',
+  ExcessIntradayMargin:      'tradovate_margin_used',
+  DailyPnL:                  'tradovate_daily_pnl',
 }
 
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────
@@ -66,23 +73,29 @@ export function detectAccountProfile(balance: number): AccountProfile {
 // ── EMPTY ACCOUNT ────────────────────────────────────────────────────────────
 export function emptyAccount(): AccountRow {
   return {
-    account_id:         '',
-    dollar_open:        0,
-    dist_to_daily_loss: 0,
-    drawdown_auto:      0,
-    total_available:    0,
-    trailing_max:       0,
-    dist_drawdown:      0,
-    unrealized_pnl:     0,
-    realized_pnl:       0,
-    net_liq:            0,
-    peak_balance:       0,
-    day_start_balance:  0,
-    day_date:           '',
-    source:             'ninjatrader',
-    nt_fields:          [],
-    last_update:        new Date().toISOString(),
-    status:             'active',
+    account_id:                 '',
+    dollar_open:                0,
+    dist_to_daily_loss:         0,
+    drawdown_auto:              0,
+    total_available:            0,
+    trailing_max:               0,
+    dist_drawdown:              0,
+    unrealized_pnl:             0,
+    realized_pnl:               0,
+    net_liq:                    0,
+    peak_balance:               0,
+    day_start_balance:          0,
+    day_date:                   '',
+    source:                     'ninjatrader',
+    nt_fields:                  [],
+    last_update:                new Date().toISOString(),
+    status:                     'active',
+    tradovate_trailing_drawdown: null,
+    tradovate_realized_pnl:     null,
+    tradovate_unrealized_pnl:   null,
+    tradovate_margin_used:      null,
+    tradovate_daily_pnl:        null,
+    tradovate_synced_at:        null,
   }
 }
 
@@ -104,6 +117,13 @@ export interface AccountRow {
   nt_fields:          string[]
   last_update:        string
   status:             string
+  // Task 6: Tradovate live fields (optional — only present when NT8 sends them)
+  tradovate_trailing_drawdown?: number | null
+  tradovate_realized_pnl?:      number | null
+  tradovate_unrealized_pnl?:    number | null
+  tradovate_margin_used?:       number | null
+  tradovate_daily_pnl?:         number | null
+  tradovate_synced_at?:         string | null
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────

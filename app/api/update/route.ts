@@ -149,6 +149,15 @@ async function handleItemUpdate(
     row.nt_fields = [...row.nt_fields, field]
   }
 
+  // Task 6: stamp synced_at when any Tradovate field arrives
+  const TRADOVATE_FIELDS = new Set([
+    'tradovate_trailing_drawdown', 'tradovate_realized_pnl',
+    'tradovate_unrealized_pnl', 'tradovate_margin_used', 'tradovate_daily_pnl',
+  ])
+  if (TRADOVATE_FIELDS.has(field)) {
+    row.tradovate_synced_at = new Date().toISOString()
+  }
+
   enrichAccount(row, true /* compute */)
   await upsertRow(supabase, row)
 

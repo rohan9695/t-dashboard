@@ -108,7 +108,29 @@ export function AccountRow({
             <span className={`text-xs font-mono font-semibold break-all ${offline ? 'text-zinc-500' : 'text-zinc-100'}`}>
               {account_id}
             </span>
+            {/* Tradovate live data indicator */}
+            {row.tradovate_synced_at && !offline && (
+              <span title="Tradovate live data connected" className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            )}
+            {!row.tradovate_synced_at && !offline && (
+              <span title="NT8 only — Tradovate values missing" className="w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
+            )}
           </div>
+          {/* Apex Drawdown: show real Tradovate value if available */}
+          {row.tradovate_trailing_drawdown != null && !offline && (
+            <div className="flex items-center gap-1 mt-0.5">
+              <span className="text-[9px] text-zinc-500">Apex DD:</span>
+              <span className={`text-[9px] font-mono ${distColor(row.tradovate_trailing_drawdown)}`}>
+                {fmt(row.tradovate_trailing_drawdown)}
+              </span>
+              {/* Amber variance badge if >$50 difference from calculated */}
+              {Math.abs((row.tradovate_trailing_drawdown) - (row.dist_drawdown)) > 50 && (
+                <span className="text-[8px] bg-amber-900/60 text-amber-400 px-1 rounded">
+                  Δ${Math.round(Math.abs(row.tradovate_trailing_drawdown - row.dist_drawdown))}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-1">
             {offline && <span className="text-[9px] text-zinc-600 font-medium">OFFLINE</span>}
             {!offline && (
