@@ -132,6 +132,36 @@ insert into app_settings (key, value) values ('killswitch', 'false')
 
 alter table app_settings enable row level security;
 
+-- ── TRADE EVENTS (Task 3B toasts) ──────────────────────────
+-- NT8 addon inserts here when a fill occurs; dashboard subscribes via Realtime
+create table if not exists trade_events (
+  id             uuid primary key default gen_random_uuid(),
+  account_id     text references accounts(account_id) on delete cascade,
+  event_type     text not null check (event_type in ('open','close','partial')),
+  symbol         text not null,
+  direction      text not null check (direction in ('long','short','flat')),
+  quantity       integer default 1,
+  pnl            numeric(14,2),   -- filled on close events
+  total_accounts integer default 1,
+  occurred_at    timestamptz default now()
+);
+
+create index if not exists trade_events_occurred_idx on trade_events(occurred_at desc);
+alter table trade_events enable row level security;
+-- anon SELECT for Realtime; service_role INSERT from /api/update
+create policy "anon_read_trade_events"
+  on trade_events for select using (true);
+
+-- ── USER PREFERENCES (Task 3C column picker) ────────────────
+create table if not exists user_preferences (
+  id            uuid primary key default gen_random_uuid(),
+  preference_key text not null unique,
+  value         jsonb not null,
+  updated_at    timestamptz default now()
+);
+
+alter table user_preferences enable row level security;
+
 -- ── WARMUP LOG ──────────────────────────────────────────────
 -- Written by the Supabase keep-warm Edge Function (Task 1A)
 create table if not exists warmup_log (
