@@ -40,7 +40,7 @@ export default async function DashboardPage() {
             <div className="min-h-screen flex flex-col">
               <KillswitchBanner />
 
-              <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3">
+              <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 pb-3 header-safe">
                 <StatusBar />
               </header>
 
@@ -58,7 +58,7 @@ export default async function DashboardPage() {
                 </section>
               </main>
 
-              <footer className="text-center text-[10px] text-zinc-700 py-4 border-t border-zinc-800/40">
+              <footer className="text-center text-[10px] text-zinc-700 pt-4 border-t border-zinc-800/40 footer-safe">
                 Trader Dashboard · Live from NinjaTrader
               </footer>
             </div>

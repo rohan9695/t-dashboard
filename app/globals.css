@@ -16,3 +16,13 @@
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* Header: at least py-3 but grows to clear Dynamic Island / notch */
+.header-safe {
+  padding-top: max(env(safe-area-inset-top), 0.75rem);
+}
+
+/* Full-bleed bottom padding that also covers home indicator */
+.footer-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+}

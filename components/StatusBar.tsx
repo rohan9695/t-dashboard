@@ -30,18 +30,21 @@ export function StatusBar() {
   return (
     <div className="flex items-center justify-between gap-3 flex-wrap">
       {/* Brand */}
-      <div className="flex items-center gap-3">
-        <svg viewBox="0 0 44 44" fill="none" className="w-8 h-8 shrink-0">
+      <div className="flex items-center gap-2">
+        <svg viewBox="0 0 44 44" fill="none" className="w-7 h-7 shrink-0">
           <circle cx="16" cy="22" r="11" stroke="white" strokeWidth="2.2" />
           <circle cx="28" cy="22" r="11" stroke="white" strokeWidth="2.2" />
         </svg>
-        <span className="text-lg font-bold tracking-tight text-zinc-100">
+        <span className="text-base font-bold tracking-tight text-zinc-100 hidden sm:block">
           Trader Dashboard
+        </span>
+        <span className="text-base font-bold tracking-tight text-zinc-100 sm:hidden">
+          Trader
         </span>
       </div>
 
       {/* Right: status + clock + gear */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-800/60 border border-zinc-700/50 rounded-full px-3 py-1.5">
           <span
             className={[

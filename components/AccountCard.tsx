@@ -231,3 +231,100 @@ export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean 
   }, [])
   return <AccountRow row={row} isBest={isBest} now={now} />
 }
+
+// Mobile card — 2-col risk grid, no horizontal scroll needed
+export function MobileAccountCard({
+  row,
+  isBest,
+  now,
+  offline = false,
+}: {
+  row: AccountRow
+  isBest: boolean
+  now: number
+  offline?: boolean
+}) {
+  const {
+    account_id, dollar_open, dist_to_daily_loss, total_available,
+    trailing_max, dist_drawdown, realized_pnl, unrealized_pnl,
+    last_update, status,
+  } = row
+
+  const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
+  const isBreached = status === 'breached'
+  const isStale    = status === 'stale'
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+
+  const dotColor = offline
+    ? 'bg-zinc-700'
+    : isBreached ? 'bg-red-500' : isStale ? 'bg-zinc-600' : 'bg-emerald-400'
+
+  const cardBorder = isBreached ? 'border-red-800/50 bg-red-950/20' : 'border-zinc-800 bg-zinc-900'
+
+  return (
+    <div className={`rounded-xl border p-4 ${cardBorder} ${offline ? 'opacity-40' : ''}`}>
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
+          {isBest && !offline && <span className="shrink-0 text-sm">👑</span>}
+          <span className="text-xs font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
+        </div>
+        <span className={`text-[10px] shrink-0 ml-2 ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
+          {offline ? 'OFFLINE' : ageText}
+        </span>
+      </div>
+
+      {/* Two main risk metrics */}
+      <div className="grid grid-cols-2 gap-2 mb-2.5">
+        <div className="bg-zinc-800/60 rounded-lg p-3">
+          <p className="text-[9px] text-zinc-500 uppercase tracking-widest mb-1.5">DD Buffer</p>
+          <p className={`text-base font-mono font-semibold ${offline ? 'text-zinc-600' : distColor(dist_drawdown)}`}>
+            {offline ? DASH : fmt(dist_drawdown)}
+          </p>
+          {!offline && trailing_max > 0 && (
+            <div className="mt-2 h-1 w-full rounded-full bg-zinc-700 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${
+                  dist_drawdown <= DANGER_THRESHOLD ? 'bg-red-500'
+                    : dist_drawdown <= CAUTION_THRESHOLD ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(0, (dist_drawdown / trailing_max) * 100))}%` }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="bg-zinc-800/60 rounded-lg p-3">
+          <p className="text-[9px] text-zinc-500 uppercase tracking-widest mb-1.5">Daily Left</p>
+          <p className={`text-base font-mono font-semibold ${offline ? 'text-zinc-600' : distColor(dist_to_daily_loss)}`}>
+            {offline ? DASH : fmt(dist_to_daily_loss)}
+          </p>
+        </div>
+      </div>
+
+      {/* Bottom: open / day / equity in one line */}
+      <div className="flex items-center justify-between text-[11px]">
+        <span>
+          <span className="text-zinc-600">Open </span>
+          <span className={`font-mono ${offline ? 'text-zinc-600' : pnlColor(dollar_open)}`}>
+            {offline ? DASH : fmt(dollar_open)}
+          </span>
+        </span>
+        <span>
+          <span className="text-zinc-600">Day </span>
+          <span className={`font-mono font-semibold ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
+            {offline ? DASH : fmt(dayPnl)}
+          </span>
+        </span>
+        <span>
+          <span className="text-zinc-600">Eq </span>
+          <span className={`font-mono ${offline ? 'text-zinc-600' : 'text-zinc-300'}`}>
+            {offline ? DASH : fmtBalance(total_available)}
+          </span>
+        </span>
+      </div>
+    </div>
+  )
+}

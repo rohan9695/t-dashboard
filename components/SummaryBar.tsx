@@ -34,9 +34,9 @@ interface StatProps {
 }
 function Stat({ label, value, valueClass = 'text-zinc-100' }: StatProps) {
   return (
-    <div className="flex-1 rounded-xl bg-zinc-900 border border-zinc-800 p-4 text-center">
-      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-1">{label}</p>
-      <p className={`text-2xl font-bold font-mono tracking-tight ${valueClass}`}>{value}</p>
+    <div className="flex-1 rounded-xl bg-zinc-900 border border-zinc-800 p-3 sm:p-4 text-center min-w-0">
+      <p className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest mb-1 truncate">{label}</p>
+      <p className={`text-lg sm:text-2xl font-bold font-mono tracking-tight truncate ${valueClass}`}>{value}</p>
     </div>
   )
 }

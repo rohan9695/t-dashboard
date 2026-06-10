@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
-import { AccountRow } from './AccountCard'
+import { AccountRow, MobileAccountCard } from './AccountCard'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 
@@ -99,16 +99,35 @@ export function AccountsGrid() {
 
   if (loading && accounts.length === 0) {
     return (
-      <div className="overflow-x-auto rounded-xl border border-zinc-800">
-        <table className="w-full text-left border-collapse">
-          {tableHeader}
-          <tbody>
-            <SkeletonRow colCount={COL_COUNT} />
-            <SkeletonRow colCount={COL_COUNT} />
-            <SkeletonRow colCount={COL_COUNT} />
-          </tbody>
-        </table>
-      </div>
+      <>
+        {/* Mobile skeleton */}
+        <div className="md:hidden space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 animate-pulse">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                <div className="h-3 bg-zinc-700 rounded w-40" />
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2.5">
+                <div className="bg-zinc-800 rounded-lg p-3 h-16" />
+                <div className="bg-zinc-800 rounded-lg p-3 h-16" />
+              </div>
+              <div className="h-2.5 bg-zinc-800 rounded w-full" />
+            </div>
+          ))}
+        </div>
+        {/* Desktop skeleton */}
+        <div className="hidden md:block overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full text-left border-collapse">
+            {tableHeader}
+            <tbody>
+              <SkeletonRow colCount={COL_COUNT} />
+              <SkeletonRow colCount={COL_COUNT} />
+              <SkeletonRow colCount={COL_COUNT} />
+            </tbody>
+          </table>
+        </div>
+      </>
     )
   }
 
@@ -132,7 +151,21 @@ export function AccountsGrid() {
 
   return (
     <>
-      <div className="overflow-x-auto rounded-xl border border-zinc-800">
+      {/* ── Mobile: one card per account ─────────────────────── */}
+      <div className="md:hidden space-y-3">
+        {sorted.map((row) => (
+          <MobileAccountCard
+            key={row.account_id}
+            row={row}
+            isBest={activeAccounts.length > 1 && row.account_id === bestAccId}
+            now={now}
+            offline={isOffline(row)}
+          />
+        ))}
+      </div>
+
+      {/* ── Desktop: scrollable table ─────────────────────────── */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full text-left border-collapse">
           {tableHeader}
           <tbody>
