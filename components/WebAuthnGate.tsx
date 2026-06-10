@@ -144,7 +144,10 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
     try {
       const { createClient } = await import('@/lib/supabase/client')
       const supabase = createClient()
-      const { error } = await supabase.auth.signInWithOtp({ email: magicEmail })
+      const { error } = await supabase.auth.signInWithOtp({
+        email: magicEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
+      })
       if (error) setError(error.message)
       else setMagicSent(true)
     } catch (e) {

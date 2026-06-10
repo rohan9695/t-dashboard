@@ -16,10 +16,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyJWT } from '@/lib/jwt'
+import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 const API_SECRET_TOKEN = process.env.API_SECRET_TOKEN ?? ''
 const API_KEY          = process.env.API_KEY ?? ''
-const JWT_SECRET       = process.env.JWT_SECRET ?? ''
 const SUPABASE_URL     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const SERVICE_KEY      = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 const RESEND_API_KEY   = process.env.RESEND_API_KEY ?? ''
@@ -119,8 +119,8 @@ async function isAuthenticated(req: NextRequest): Promise<boolean> {
 
   // 3. Session cookie (browser after Face ID auth)
   const sessionCookie = req.cookies.get('td_session')?.value
-  if (sessionCookie && JWT_SECRET) {
-    const payload = await verifyJWT(sessionCookie, JWT_SECRET)
+  if (sessionCookie && AUTH_JWT_SECRET) {
+    const payload = await verifyJWT(sessionCookie, AUTH_JWT_SECRET)
     if (payload) return true
   }
 

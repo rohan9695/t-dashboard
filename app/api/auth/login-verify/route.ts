@@ -6,12 +6,12 @@ import { verifyAuthenticationResponse } from '@simplewebauthn/server'
 import type { AuthenticationResponseJSON } from '@simplewebauthn/types'
 import { createServiceClient } from '@/lib/supabase/server'
 import { verifyJWT, signJWT } from '@/lib/jwt'
+import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs'
 
-const RP_ID      = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
-const ORIGIN     = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard-pi.vercel.app'
-const JWT_SECRET = process.env.JWT_SECRET ?? ''
+const RP_ID  = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
+const ORIGIN = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard-pi.vercel.app'
 
 function b64urlToUint8Array(b64url: string): Uint8Array {
   const base64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
@@ -21,11 +21,11 @@ function b64urlToUint8Array(b64url: string): Uint8Array {
 
 export async function POST(req: NextRequest) {
   const challengeToken = req.cookies.get('td_challenge')?.value
-  if (!challengeToken || !JWT_SECRET) {
+  if (!challengeToken || !AUTH_JWT_SECRET) {
     return NextResponse.json({ error: 'Missing challenge' }, { status: 400 })
   }
 
-  const challengePayload = await verifyJWT(challengeToken, JWT_SECRET)
+  const challengePayload = await verifyJWT(challengeToken, AUTH_JWT_SECRET)
   if (!challengePayload || typeof challengePayload.challenge !== 'string') {
     return NextResponse.json({ error: 'Challenge expired or invalid' }, { status: 400 })
   }
@@ -39,7 +39,6 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Look up the credential by ID
   const { data: credRow } = await supabase
     .from('passkey_credentials')
     .select('*')
@@ -72,14 +71,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Verification failed' }, { status: 400 })
   }
 
-  // Update counter to prevent replay attacks
   await supabase
     .from('passkey_credentials')
     .update({ counter: verification.authenticationInfo.newCounter })
     .eq('credential_id', body.id)
 
-  // Issue 24-hour session
-  const sessionToken = await signJWT({ authed: true }, JWT_SECRET, 86_400)
+  const sessionToken = await signJWT({ authed: true }, AUTH_JWT_SECRET, 86_400)
 
   const res = NextResponse.json({ verified: true })
   res.cookies.set('td_session', sessionToken, {

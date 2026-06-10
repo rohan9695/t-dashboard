@@ -6,17 +6,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateRegistrationOptions } from '@simplewebauthn/server'
 import { signJWT } from '@/lib/jwt'
+import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs' // @simplewebauthn/server uses Node crypto
 
-const RP_ID      = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
-const RP_NAME    = process.env.WEBAUTHN_RP_NAME ?? 'Trader Dashboard'
-const JWT_SECRET = process.env.JWT_SECRET ?? ''
+const RP_ID   = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
+const RP_NAME = process.env.WEBAUTHN_RP_NAME ?? 'Trader Dashboard'
 
 export async function POST(_req: NextRequest) {
-  if (!JWT_SECRET) {
+  if (!AUTH_JWT_SECRET) {
     return NextResponse.json(
-      { error: 'JWT_SECRET environment variable is not set on the server. Add it in Vercel project settings.' },
+      { error: 'Server auth secret is not configured. Set JWT_SECRET or SUPABASE_SERVICE_ROLE_KEY in Vercel.' },
       { status: 500 },
     )
   }
@@ -30,15 +30,14 @@ export async function POST(_req: NextRequest) {
     attestationType: 'none',
     authenticatorSelection: {
       residentKey: 'preferred',
-      userVerification: 'required', // Forces Face ID / biometric
+      userVerification: 'required',
     },
   })
 
-  // Store challenge in a short-lived signed cookie (avoids server-side KV)
   const challengeToken = await signJWT(
     { challenge: options.challenge },
-    JWT_SECRET,
-    300, // 5-minute window for user to complete Face ID
+    AUTH_JWT_SECRET,
+    300,
   )
 
   const res = NextResponse.json(options)

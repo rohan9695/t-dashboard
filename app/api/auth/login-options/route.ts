@@ -6,16 +6,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateAuthenticationOptions } from '@simplewebauthn/server'
 import { signJWT } from '@/lib/jwt'
+import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs'
 
-const RP_ID      = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
-const JWT_SECRET = process.env.JWT_SECRET ?? ''
+const RP_ID = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
 
 export async function POST(_req: NextRequest) {
-  if (!JWT_SECRET) {
+  if (!AUTH_JWT_SECRET) {
     return NextResponse.json(
-      { error: 'JWT_SECRET environment variable is not set on the server. Add it in Vercel project settings.' },
+      { error: 'Server auth secret is not configured. Set JWT_SECRET or SUPABASE_SERVICE_ROLE_KEY in Vercel.' },
       { status: 500 },
     )
   }
@@ -28,7 +28,7 @@ export async function POST(_req: NextRequest) {
 
   const challengeToken = await signJWT(
     { challenge: options.challenge },
-    JWT_SECRET,
+    AUTH_JWT_SECRET,
     300,
   )
 
