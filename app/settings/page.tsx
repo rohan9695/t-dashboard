@@ -11,10 +11,7 @@ import {
 
 type PrefsState = Record<PreferenceKey, boolean>
 
-const SECTIONS: Array<{
-  title: string
-  keys: PreferenceKey[]
-}> = [
+const SECTIONS: Array<{ title: string; keys: PreferenceKey[] }> = [
   {
     title: 'Notifications',
     keys: ['toast_notifications', 'haptic_alerts', 'heartbeat_monitor'],
@@ -36,57 +33,75 @@ const SECTIONS: Array<{
   },
 ]
 
+const LS_KEY = 'td_preferences'
+
+function lsLoad(): Partial<PrefsState> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LS_KEY) : null
+    return raw ? (JSON.parse(raw) as Partial<PrefsState>) : {}
+  } catch { return {} }
+}
+
+function lsSave(prefs: PrefsState) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)) } catch { /* non-critical */ }
+}
+
 export default function SettingsPage() {
   const router = useRouter()
   const [prefs, setPrefs] = useState<PrefsState>({ ...PREFERENCE_DEFAULTS })
   const [saving, setSaving] = useState<Set<PreferenceKey>>(new Set())
-  // Stable ref — createClient() must not be called on every render
   const supabaseRef = useRef(createClient())
 
   useEffect(() => {
-    async function load() {
-      const { data } = await supabaseRef.current
-        .from('user_preferences')
-        .select('preference_key, value')
-      if (!data) return
-      setPrefs((prev) => {
-        const next = { ...prev }
-        for (const row of data) {
-          const key = row.preference_key as PreferenceKey
-          if (key in PREFERENCE_DEFAULTS) {
-            next[key] = Boolean((row.value as { v: boolean }).v)
-          }
-        }
-        return next
-      })
+    // Instant restore from localStorage — no loading flash
+    const cached = lsLoad()
+    if (Object.keys(cached).length > 0) {
+      setPrefs((p) => ({ ...p, ...cached }))
     }
-    load()
-  }, []) // empty — run once on mount; supabaseRef is a stable ref
+
+    // Best-effort sync from Supabase (overrides cache if DB has data)
+    supabaseRef.current
+      .from('user_preferences')
+      .select('preference_key, value')
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
+        setPrefs((prev) => {
+          const next = { ...prev }
+          for (const row of data) {
+            const key = row.preference_key as PreferenceKey
+            if (key in PREFERENCE_DEFAULTS) {
+              next[key] = Boolean((row.value as { v: boolean }).v)
+            }
+          }
+          lsSave(next)
+          return next
+        })
+      })
+  }, [])
 
   const toggle = useCallback(async (key: PreferenceKey) => {
-    const newVal = !prefs[key]
-    setPrefs((p) => ({ ...p, [key]: newVal }))
+    setPrefs((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      lsSave(next) // always persists locally, even if Supabase is unavailable
+      return next
+    })
     setSaving((s) => new Set(s).add(key))
 
-    const { error } = await supabaseRef.current
+    // Best-effort cloud save — no revert on failure; localStorage is the source of truth
+    await supabaseRef.current
       .from('user_preferences')
       .upsert(
-        { preference_key: key, value: { v: newVal }, updated_at: new Date().toISOString() },
+        { preference_key: key, value: { v: !prefs[key] }, updated_at: new Date().toISOString() },
         { onConflict: 'preference_key' },
       )
-
-    if (error) {
-      // Revert optimistic update on failure
-      setPrefs((p) => ({ ...p, [key]: !newVal }))
-    }
 
     setSaving((s) => { const n = new Set(s); n.delete(key); return n })
   }, [prefs])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3 flex items-center gap-3">
+      {/* Header — header-safe clears Dynamic Island on iPhone */}
+      <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 pb-3 header-safe flex items-center gap-3">
         <button
           onClick={() => router.push('/')}
           className="min-h-[44pt] min-w-[44pt] flex items-center justify-center text-zinc-400 hover:text-zinc-200 -ml-2"
@@ -108,28 +123,36 @@ export default function SettingsPage() {
             <div className="space-y-1">
               {section.keys.map((key) => {
                 const { label, description } = PREFERENCE_LABELS[key]
-                const isOn  = prefs[key]
+                const isOn     = prefs[key]
                 const isSaving = saving.has(key)
 
                 return (
+                  // Full row is the tap target — much easier on iPhone than a 28px toggle
                   <div
                     key={key}
-                    className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 min-h-[62px]"
+                    role="button"
+                    aria-pressed={isOn}
+                    aria-label={`${isOn ? 'Disable' : 'Enable'} ${label}`}
+                    onClick={() => { if (!isSaving) toggle(key) }}
+                    className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 min-h-[62px] cursor-pointer active:bg-zinc-800/80 select-none"
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-zinc-100 leading-tight">{label}</p>
                       <p className="text-[11px] text-zinc-500 mt-0.5 leading-tight">{description}</p>
                     </div>
-                    <button
-                      onClick={() => toggle(key)}
-                      disabled={isSaving}
-                      aria-label={`${isOn ? 'Disable' : 'Enable'} ${label}`}
-                      className={`shrink-0 w-12 h-7 rounded-full transition-colors duration-200 ${isOn ? 'bg-emerald-500' : 'bg-zinc-700'} ${isSaving ? 'opacity-60' : ''}`}
+                    {/* Toggle visual — pointer-events-none, parent row handles taps */}
+                    <div
+                      aria-hidden="true"
+                      className={`shrink-0 w-12 h-7 rounded-full transition-colors duration-200 pointer-events-none ${
+                        isSaving ? 'opacity-60' : ''
+                      } ${isOn ? 'bg-emerald-500' : 'bg-zinc-700'}`}
                     >
                       <div
-                        className={`w-5 h-5 rounded-full bg-white mx-1 transition-transform duration-200 ${isOn ? 'translate-x-5' : 'translate-x-0'}`}
+                        className={`w-5 h-5 rounded-full bg-white mt-1 mx-1 transition-transform duration-200 ${
+                          isOn ? 'translate-x-5' : 'translate-x-0'
+                        }`}
                       />
-                    </button>
+                    </div>
                   </div>
                 )
               })}
