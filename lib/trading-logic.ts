@@ -199,7 +199,7 @@ export function enrichAccount(
     row.dollar_open = row.unrealized_pnl
   }
 
-  if (compute && row.source !== 'ninjatrader') {
+  if (compute) {
     computeTradovateMetrics(row, true)
   }
 }

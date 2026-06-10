@@ -181,7 +181,7 @@ async function handleSnapshot(
     total_available:    Number(body.total_available    ?? 0),
     trailing_max:       Number(body.trailing_max       ?? 0),
     dist_drawdown:      Number(body.dist_drawdown      ?? 0),
-    unrealized_pnl:     Number(body.dollar_open        ?? 0),
+    unrealized_pnl:     Number(body.unrealized_pnl     ?? body.dollar_open ?? 0),
     source:             'ninjatrader',
     nt_fields: [
       'dollar_open','dist_to_daily_loss','drawdown_auto',

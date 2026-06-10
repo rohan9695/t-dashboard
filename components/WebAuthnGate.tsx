@@ -37,40 +37,29 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
     }, IDLE_TIMEOUT_MS)
   }, [])
 
-  // Check if we have a valid session (cookie checked server-side via /api/auth/login-options)
-  // Simplest client-side signal: try login-options; if server returns credentials, we know
-  // registrations exist. Session validity is verified by middleware on actual API calls.
   useEffect(() => {
     async function init() {
       if (!browserSupportsWebAuthn()) {
-        // No WebAuthn → skip gate (show magic link fallback instead)
         setAuthState('unauthenticated')
         return
       }
 
       try {
-        // Check if any credentials exist in DB
-        const res = await fetch('/api/auth/login-options', { method: 'POST' })
-        if (!res.ok) {
-          setAuthState('unauthenticated')
-          return
-        }
-        const opts = await res.json()
-        const hasCreds = (opts.allowCredentials ?? []).length > 0
-        setHasCredentials(hasCreds)
-
-        // Check for existing valid session via td_session cookie
-        // The cookie is httpOnly so we can't read it in JS.
-        // Instead, try a quick authenticated request and see if it succeeds.
+        // Check for existing valid session (td_session cookie is httpOnly — probe an auth'd route)
         const probe = await fetch('/api/heartbeat')
         if (probe.ok) {
-          // Session cookie is valid
           setAuthState('authenticated')
           resetIdleTimer()
           return
         }
 
-        // No valid session → need to authenticate (or register)
+        // No valid session — check whether credentials have been registered
+        const checkRes = await fetch('/api/auth/check')
+        if (checkRes.ok) {
+          const { registered } = await checkRes.json() as { registered: boolean }
+          setHasCredentials(registered)
+        }
+
         setAuthState('unauthenticated')
       } catch {
         setAuthState('unauthenticated')

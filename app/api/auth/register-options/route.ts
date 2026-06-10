@@ -14,6 +14,13 @@ const RP_NAME    = process.env.WEBAUTHN_RP_NAME ?? 'Trader Dashboard'
 const JWT_SECRET = process.env.JWT_SECRET ?? ''
 
 export async function POST(_req: NextRequest) {
+  if (!JWT_SECRET) {
+    return NextResponse.json(
+      { error: 'JWT_SECRET environment variable is not set on the server. Add it in Vercel project settings.' },
+      { status: 500 },
+    )
+  }
+
   // Single-owner dashboard — excludeCredentials omitted (no need to deduplicate)
   const options = await generateRegistrationOptions({
     rpName: RP_NAME,

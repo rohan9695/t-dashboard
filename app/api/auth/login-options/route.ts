@@ -13,6 +13,13 @@ const RP_ID      = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
 const JWT_SECRET = process.env.JWT_SECRET ?? ''
 
 export async function POST(_req: NextRequest) {
+  if (!JWT_SECRET) {
+    return NextResponse.json(
+      { error: 'JWT_SECRET environment variable is not set on the server. Add it in Vercel project settings.' },
+      { status: 500 },
+    )
+  }
+
   const options = await generateAuthenticationOptions({
     rpID: RP_ID,
     userVerification: 'required',
