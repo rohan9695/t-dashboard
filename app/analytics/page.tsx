@@ -1,9 +1,6 @@
 'use client'
-// app/analytics/page.tsx
-// Analytics dashboard — only renders meaningful content when trade_journal is ON.
-// Each chart section is gated independently by its own preference flag.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { PREFERENCE_DEFAULTS, type PreferenceKey } from '@/lib/preferences'
@@ -15,16 +12,27 @@ import { AIInsights } from '@/components/analytics/AIInsights'
 
 type Prefs = Record<PreferenceKey, boolean>
 
+const LS_KEY = 'td_preferences'
+
+function lsLoad(): Partial<Prefs> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LS_KEY) : null
+    return raw ? (JSON.parse(raw) as Partial<Prefs>) : {}
+  } catch { return {} }
+}
+
 export default function AnalyticsPage() {
   const router = useRouter()
-  const [prefs, setPrefs] = useState<Prefs>({ ...PREFERENCE_DEFAULTS })
-  const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const [prefs, setPrefs] = useState<Prefs>({ ...PREFERENCE_DEFAULTS, ...lsLoad() })
+  const supabaseRef = useRef(createClient())
 
+  // Best-effort Supabase sync — localStorage is already applied above on init
   useEffect(() => {
-    async function load() {
-      const { data } = await supabase.from('user_preferences').select('preference_key, value')
-      if (data) {
+    supabaseRef.current
+      .from('user_preferences')
+      .select('preference_key, value')
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
         setPrefs((prev) => {
           const next = { ...prev }
           for (const row of data) {
@@ -33,46 +41,27 @@ export default function AnalyticsPage() {
           }
           return next
         })
-      }
-      setLoading(false)
-    }
-    load()
-  }, [supabase])
+      })
+  }, [])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-zinc-600 border-t-zinc-200 rounded-full animate-spin" />
-      </div>
-    )
-  }
+  const analyticsWidgets = [
+    { key: 'equity_curve'        as PreferenceKey, label: 'Equity Curve',         node: <EquityCurve /> },
+    { key: 'profit_factor'       as PreferenceKey, label: 'Profit Factor',         node: <ProfitFactor /> },
+    { key: 'win_rate_heatmap'    as PreferenceKey, label: 'Win Rate Heatmap',      node: <WinRateHeatmap /> },
+    { key: 'pnl_calendar'        as PreferenceKey, label: 'P&L Calendar',          node: <PnLCalendar /> },
+    { key: 'ai_pattern_detection'as PreferenceKey, label: 'AI Pattern Detection',  node: <AIInsights /> },
+  ]
 
-  if (!prefs.trade_journal) {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-6 px-8 text-center">
-        <div className="text-4xl">📊</div>
-        <div>
-          <h1 className="text-xl font-bold mb-2">Analytics disabled</h1>
-          <p className="text-zinc-500 text-sm max-w-xs">
-            Enable Trade Journal in Settings to auto-log fills and unlock all analytics.
-          </p>
-        </div>
-        <button
-          onClick={() => router.push('/settings')}
-          className="min-h-[44pt] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm"
-        >
-          Open Settings
-        </button>
-      </div>
-    )
-  }
+  const enabledWidgets = analyticsWidgets.filter((w) => prefs[w.key])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3 flex items-center gap-3">
+      {/* Header — header-safe clears Dynamic Island */}
+      <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 pb-3 header-safe flex items-center gap-3">
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push('/')}
           className="min-h-[44pt] min-w-[44pt] flex items-center justify-center text-zinc-400 hover:text-zinc-200 -ml-2"
+          aria-label="Back"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
             <path d="M15 18l-6-6 6-6" />
@@ -81,16 +70,47 @@ export default function AnalyticsPage() {
         <h1 className="text-lg font-bold tracking-tight">Analytics</h1>
       </header>
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
-        {prefs.equity_curve   && <EquityCurve />}
-        {prefs.profit_factor  && <ProfitFactor />}
-        {prefs.win_rate_heatmap && <WinRateHeatmap />}
-        {prefs.pnl_calendar   && <PnLCalendar />}
-        {prefs.ai_pattern_detection && <AIInsights />}
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* Trade Journal notice — soft warning, not a hard gate */}
+        {!prefs.trade_journal && enabledWidgets.length > 0 && (
+          <div className="flex items-start gap-3 rounded-xl bg-amber-950/40 border border-amber-800/50 px-4 py-3">
+            <span className="text-amber-400 text-base shrink-0 mt-0.5">⚠️</span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-200">Trade Journal is off</p>
+              <p className="text-xs text-amber-400/80 mt-0.5">
+                Enable <strong>Trade Journal</strong> in Settings to start logging fills. Widgets will show real data once trades are recorded.
+              </p>
+              <button
+                onClick={() => router.push('/settings')}
+                className="mt-2 text-xs text-amber-300 underline underline-offset-2"
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        )}
 
-        {!prefs.equity_curve && !prefs.profit_factor && !prefs.win_rate_heatmap && !prefs.pnl_calendar && !prefs.ai_pattern_detection && (
-          <div className="text-center py-20 text-zinc-500 text-sm">
-            No analytics widgets enabled. Go to Settings → Analytics to turn them on.
+        {/* Enabled widgets */}
+        {enabledWidgets.map((w) => (
+          <div key={w.key}>{w.node}</div>
+        ))}
+
+        {/* Nothing enabled */}
+        {enabledWidgets.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-6 py-20 text-center px-8">
+            <div className="text-4xl">📊</div>
+            <div>
+              <h2 className="text-lg font-bold text-zinc-100 mb-2">No analytics widgets enabled</h2>
+              <p className="text-zinc-500 text-sm max-w-xs">
+                Go to Settings → Analytics and enable the charts you want to see.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push('/settings')}
+              className="min-h-[44pt] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm active:scale-95 transition-transform"
+            >
+              Open Settings
+            </button>
           </div>
         )}
       </div>

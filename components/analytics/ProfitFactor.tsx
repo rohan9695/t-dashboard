@@ -2,19 +2,19 @@
 // components/analytics/ProfitFactor.tsx
 // Wins / losses ratio, red if below 1.0.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export function ProfitFactor() {
   const [pf, setPf] = useState<number | null>(null)
   const [winRate, setWinRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     async function load() {
       const today = new Date(); today.setHours(0, 0, 0, 0)
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('trade_events')
         .select('pnl')
         .eq('event_type', 'close')
@@ -29,7 +29,7 @@ export function ProfitFactor() {
       setWinRate(Math.round((wins.length / data.length) * 100))
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (loading) return <div className="h-20 animate-pulse bg-zinc-800 rounded-xl" />
 

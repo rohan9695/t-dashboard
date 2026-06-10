@@ -3,7 +3,7 @@
 // Shows the latest AI pattern detection insight from Supabase ai_insights table.
 // Insights are generated weekly by the Supabase ai-analysis Edge Function.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Insight {
@@ -16,11 +16,11 @@ interface Insight {
 export function AIInsights() {
   const [insight, setInsight] = useState<Insight | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('ai_insights')
         .select('*')
         .order('generated_at', { ascending: false })
@@ -30,7 +30,7 @@ export function AIInsights() {
       if (data) setInsight(data as Insight)
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (loading) return <div className="h-32 animate-pulse bg-zinc-800 rounded-xl" />
 

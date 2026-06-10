@@ -3,7 +3,7 @@
 // Running P&L line chart per session, built from trade_events.
 // Uses SVG only — no charting library dependency.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface PnLPoint { ts: number; cumPnl: number }
@@ -11,14 +11,14 @@ interface PnLPoint { ts: number; cumPnl: number }
 export function EquityCurve() {
   const [points, setPoints] = useState<PnLPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     async function load() {
       // Today's closed trades
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('trade_events')
         .select('pnl, occurred_at')
         .eq('event_type', 'close')
@@ -34,7 +34,7 @@ export function EquityCurve() {
       setPoints(pts)
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (loading) return <div className="h-40 animate-pulse bg-zinc-800 rounded-xl" />
   if (points.length === 0) {

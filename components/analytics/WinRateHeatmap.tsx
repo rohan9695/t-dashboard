@@ -2,7 +2,7 @@
 // components/analytics/WinRateHeatmap.tsx
 // Hour × day grid of win rates from trade_events.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const DAYS  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
@@ -14,13 +14,13 @@ type Grid = Record<string, Record<number, Cell>> // day → hour → cell
 export function WinRateHeatmap() {
   const [grid, setGrid] = useState<Grid>({})
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     async function load() {
       // Last 30 days
       const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString()
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('trade_events')
         .select('pnl, occurred_at')
         .eq('event_type', 'close')
@@ -41,7 +41,7 @@ export function WinRateHeatmap() {
       setGrid(g)
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (loading) return <div className="h-40 animate-pulse bg-zinc-800 rounded-xl" />
 

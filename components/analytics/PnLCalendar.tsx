@@ -2,7 +2,7 @@
 // components/analytics/PnLCalendar.tsx
 // 12-month GitHub-style P&L calendar heatmap.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface DayData { date: string; pnl: number }
@@ -10,12 +10,12 @@ interface DayData { date: string; pnl: number }
 export function PnLCalendar() {
   const [days, setDays] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     async function load() {
       const since = new Date(Date.now() - 365 * 24 * 3600_000).toISOString()
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('trade_events')
         .select('pnl, occurred_at')
         .eq('event_type', 'close')
@@ -30,7 +30,7 @@ export function PnLCalendar() {
       setDays(map)
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (loading) return <div className="h-32 animate-pulse bg-zinc-800 rounded-xl" />
 
