@@ -29,6 +29,7 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
   const [magicSent, setMagicSent] = useState(false)
   const [hasCredentials, setHasCredentials] = useState(false)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoLoginRef = useRef(false)
 
   const resetIdleTimer = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -86,6 +87,9 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
     try {
       const optRes = await fetch('/api/auth/register-options', { method: 'POST' })
       const opts = await optRes.json()
+      if (!optRes.ok) {
+        throw new Error((opts as { error?: string }).error ?? 'Failed to get registration options')
+      }
       const attResp = await startRegistration(opts)
       const verRes = await fetch('/api/auth/register-verify', {
         method: 'POST',
@@ -112,6 +116,9 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
     try {
       const optRes = await fetch('/api/auth/login-options', { method: 'POST' })
       const opts = await optRes.json()
+      if (!optRes.ok) {
+        throw new Error((opts as { error?: string }).error ?? 'Failed to get login options')
+      }
       const authResp = await startAuthentication(opts)
       const verRes = await fetch('/api/auth/login-verify', {
         method: 'POST',
@@ -132,9 +139,16 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
     }
   }, [resetIdleTimer])
 
-  // Auto-trigger login when state becomes unauthenticated and credentials exist
+  // Auto-trigger login once on initial load when credentials exist.
+  // autoLoginRef prevents an infinite loop if the user cancels Face ID.
   useEffect(() => {
-    if (authState === 'unauthenticated' && hasCredentials && browserSupportsWebAuthn()) {
+    if (
+      authState === 'unauthenticated' &&
+      hasCredentials &&
+      browserSupportsWebAuthn() &&
+      !autoLoginRef.current
+    ) {
+      autoLoginRef.current = true
       handleLogin()
     }
   }, [authState, hasCredentials, handleLogin])

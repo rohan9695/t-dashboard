@@ -5,8 +5,6 @@
 
 import { useEffect, useState } from 'react'
 
-const KILLSWITCH_TOKEN = '' // set only in dev — in prod this is server-side only
-
 export function KillswitchBanner() {
   const [active, setActive] = useState(false)
   const [confirmPending, setConfirmPending] = useState(false)
@@ -35,12 +33,9 @@ export function KillswitchBanner() {
       setTimeout(() => setConfirmPending(false), 3_000)
       return
     }
-    // Second tap: actually reset
+    // Second tap: send reset — td_session cookie is sent automatically
     setConfirmPending(false)
-    fetch('/api/killswitch/reset', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KILLSWITCH_TOKEN}` },
-    })
+    fetch('/api/killswitch/reset', { method: 'POST' })
       .then((r) => r.json())
       .then((d: { deactivated?: boolean }) => { if (d.deactivated) setActive(false) })
       .catch(() => { /* non-critical */ })

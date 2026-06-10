@@ -135,7 +135,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {/* Toast stack — bottom-center, above iPhone home indicator */}
       {toasts.length > 0 && (
         <div
-          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col-reverse items-center gap-2 pointer-events-none"
+          className="fixed toast-bottom left-1/2 -translate-x-1/2 z-50 flex flex-col-reverse items-center gap-2 pointer-events-none"
           role="status"
           aria-live="polite"
         >

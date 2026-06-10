@@ -1,20 +1,35 @@
 // app/api/killswitch/reset/route.ts
-// POST /api/killswitch/reset — deactivate killswitch (requires KILLSWITCH_TOKEN)
+// POST /api/killswitch/reset — deactivate killswitch
+// Accepts either:
+//   - Authorization: Bearer <KILLSWITCH_TOKEN>  (server-side / curl)
+//   - td_session cookie with a valid JWT         (browser)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { verifyJWT } from '@/lib/jwt'
+import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'edge'
 
 const KILLSWITCH_TOKEN = process.env.KILLSWITCH_TOKEN ?? ''
 
-function checkToken(req: NextRequest): boolean {
+async function isAuthorized(req: NextRequest): Promise<boolean> {
+  // Option 1: KILLSWITCH_TOKEN Bearer header (for curl / server automation)
   const auth = req.headers.get('authorization') ?? ''
-  return auth === `Bearer ${KILLSWITCH_TOKEN}` && KILLSWITCH_TOKEN !== ''
+  if (KILLSWITCH_TOKEN && auth === `Bearer ${KILLSWITCH_TOKEN}`) return true
+
+  // Option 2: valid td_session cookie (for browser — cookie sent automatically)
+  const sessionCookie = req.cookies.get('td_session')?.value
+  if (sessionCookie && AUTH_JWT_SECRET) {
+    const payload = await verifyJWT(sessionCookie, AUTH_JWT_SECRET)
+    if (payload) return true
+  }
+
+  return false
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkToken(req)) {
+  if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -26,3 +26,8 @@
 .footer-safe {
   padding-bottom: max(env(safe-area-inset-bottom), 1rem);
 }
+
+/* Toast: always above the home indicator + 2rem gap */
+.toast-bottom {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem);
+}

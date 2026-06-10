@@ -12,7 +12,6 @@ import {
   emptyAccount,
   enrichAccount,
   computeTradovateMetrics,
-  ACCOUNT_TIMEOUT_SECONDS,
   type AccountRow,
 } from '@/lib/trading-logic'
 
@@ -52,9 +51,16 @@ async function upsertRow(
 ) {
   row.last_update = new Date().toISOString()
 
-  // Mark stale accounts
-  const cutoff = new Date(Date.now() - ACCOUNT_TIMEOUT_SECONDS * 1000).toISOString()
-  row.status = row.last_update >= cutoff ? 'active' : 'stale'
+  // Breach if any risk buffer has gone negative; otherwise mark active.
+  // Stale detection happens client-side based on last_update timestamp.
+  if (
+    row.total_available > 0 &&
+    ((row.dist_drawdown ?? 0) <= 0 || (row.dist_to_daily_loss ?? 0) <= 0)
+  ) {
+    row.status = 'breached'
+  } else {
+    row.status = 'active'
+  }
 
   const { error } = await supabase
     .from('accounts')

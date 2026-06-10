@@ -1,10 +1,6 @@
 'use client'
-// app/settings/page.tsx
-// Settings page — gear icon in header opens this.
-// Toggles save instantly to Supabase user_preferences.
-// Feature code paths are skipped when OFF.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -44,12 +40,12 @@ export default function SettingsPage() {
   const router = useRouter()
   const [prefs, setPrefs] = useState<PrefsState>({ ...PREFERENCE_DEFAULTS })
   const [saving, setSaving] = useState<Set<PreferenceKey>>(new Set())
-  const supabase = createClient()
+  // Stable ref — createClient() must not be called on every render
+  const supabaseRef = useRef(createClient())
 
-  // Load preferences from Supabase on mount
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('user_preferences')
         .select('preference_key, value')
       if (!data) return
@@ -65,26 +61,34 @@ export default function SettingsPage() {
       })
     }
     load()
-  }, [supabase])
+  }, []) // empty — run once on mount; supabaseRef is a stable ref
 
   const toggle = useCallback(async (key: PreferenceKey) => {
     const newVal = !prefs[key]
     setPrefs((p) => ({ ...p, [key]: newVal }))
     setSaving((s) => new Set(s).add(key))
 
-    await supabase
+    const { error } = await supabaseRef.current
       .from('user_preferences')
-      .upsert({ preference_key: key, value: { v: newVal }, updated_at: new Date().toISOString() }, { onConflict: 'preference_key' })
+      .upsert(
+        { preference_key: key, value: { v: newVal }, updated_at: new Date().toISOString() },
+        { onConflict: 'preference_key' },
+      )
+
+    if (error) {
+      // Revert optimistic update on failure
+      setPrefs((p) => ({ ...p, [key]: !newVal }))
+    }
 
     setSaving((s) => { const n = new Set(s); n.delete(key); return n })
-  }, [prefs, supabase])
+  }, [prefs])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 py-3 flex items-center gap-3">
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push('/')}
           className="min-h-[44pt] min-w-[44pt] flex items-center justify-center text-zinc-400 hover:text-zinc-200 -ml-2"
           aria-label="Back"
         >
