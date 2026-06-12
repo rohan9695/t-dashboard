@@ -9,7 +9,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { verifyJWT } from '@/lib/jwt'
 import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
-export const runtime = 'edge'
 
 const KILLSWITCH_TOKEN = process.env.KILLSWITCH_TOKEN ?? ''
 

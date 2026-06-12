@@ -5,3 +5,4 @@ node_modules/
 out/
 *.db
 account_state.json
+.open-next/

@@ -15,7 +15,6 @@ import {
   type AccountRow,
 } from '@/lib/trading-logic'
 
-export const runtime = 'edge'
 
 const API_KEY = process.env.API_KEY ?? 'change-me-set-in-env-file'
 

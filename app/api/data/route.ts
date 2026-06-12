@@ -6,7 +6,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { ACCOUNT_TIMEOUT_SECONDS } from '@/lib/trading-logic'
 
-export const runtime = 'edge'
 
 export async function GET(req: NextRequest) {
   // Simple session check — if using Supabase Auth, validate JWT here

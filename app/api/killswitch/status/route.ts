@@ -4,7 +4,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
-export const runtime = 'edge'
 
 const KILLSWITCH_TOKEN = process.env.KILLSWITCH_TOKEN ?? ''
 
