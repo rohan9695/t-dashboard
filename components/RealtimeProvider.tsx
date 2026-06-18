@@ -142,26 +142,26 @@ export function RealtimeProvider({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Polling fallback — fetches fresh data every 15 s in case Realtime
-  // events are silently dropped (e.g. RLS not yet configured for anon role)
+  // Polling fallback — fetches fresh data every 3 s so live trades appear
+  // immediately even if Supabase Realtime events are dropped
   useEffect(() => {
     const id = setInterval(async () => {
-      // Only poll if the tab is visible to avoid waking a backgrounded PWA
       if (document.hidden) return
       try {
-        const { data } = await supabaseRef.current
+        const { data, error } = await supabaseRef.current
           .from('accounts')
           .select('*')
           .order('account_id')
+        if (error) console.warn('[poll] supabase error', error.message)
         if (data && data.length > 0) {
           setAccounts(data as AccountRow[])
           setLastUpdate(new Date())
           setLoading(false)
         }
-      } catch {
-        // Silently ignore — Realtime is the primary path
+      } catch (e) {
+        console.warn('[poll] fetch failed', e)
       }
-    }, 15_000)
+    }, 3_000)
     return () => clearInterval(id)
   }, [])
 
