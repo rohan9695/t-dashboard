@@ -124,6 +124,29 @@ export function RealtimeProvider({
     }
   }, [subscribe])
 
+  // Polling fallback — fetches fresh data every 15 s in case Realtime
+  // events are silently dropped (e.g. RLS not yet configured for anon role)
+  useEffect(() => {
+    const id = setInterval(async () => {
+      // Only poll if the tab is visible to avoid waking a backgrounded PWA
+      if (document.hidden) return
+      try {
+        const { data } = await supabaseRef.current
+          .from('accounts')
+          .select('*')
+          .order('account_id')
+        if (data && data.length > 0) {
+          setAccounts(data as AccountRow[])
+          setLastUpdate(new Date())
+          setLoading(false)
+        }
+      } catch {
+        // Silently ignore — Realtime is the primary path
+      }
+    }, 15_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Force refresh when app returns to foreground
   useEffect(() => {
     let wasHidden = false
