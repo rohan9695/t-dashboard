@@ -211,9 +211,12 @@ export function enrichAccount(
     row.total_available = row.net_liq
   }
 
-  if (row.dollar_open && !row.unrealized_pnl) {
+  // dollar_open and unrealized_pnl mean the same thing — sync only when one is
+  // truly absent (never sent by NT8). Do NOT use truthy check — that would
+  // overwrite a legitimate 0 (position closed) with a stale non-zero value.
+  if (row.dollar_open !== 0 && row.unrealized_pnl === 0 && !row.nt_fields?.includes('unrealized_pnl')) {
     row.unrealized_pnl = row.dollar_open
-  } else if (row.unrealized_pnl && !row.dollar_open) {
+  } else if (row.unrealized_pnl !== 0 && row.dollar_open === 0 && !row.nt_fields?.includes('dollar_open')) {
     row.dollar_open = row.unrealized_pnl
   }
 

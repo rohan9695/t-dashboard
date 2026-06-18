@@ -149,6 +149,12 @@ async function handleItemUpdate(
 
   ;(row as unknown as Record<string, unknown>)[field] = value
 
+  // Keep dollar_open ↔ unrealized_pnl in sync — they're the same concept but
+  // NT8 may send either. Critically: if NT8 sends 0 (position closed), we must
+  // clear BOTH fields so stale values don't linger.
+  if (field === 'dollar_open')    row.unrealized_pnl = value
+  if (field === 'unrealized_pnl') row.dollar_open    = value
+
   // Track which fields NT8 sent (mirrors row["nt_fields"])
   if (!row.nt_fields.includes(field)) {
     row.nt_fields = [...row.nt_fields, field]
