@@ -307,23 +307,29 @@ export function MobileListRow({
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-3 gap-0.5 text-right">
+      <div className="flex-1 grid grid-cols-4 gap-0.5 text-right">
         <div>
           <p className="text-[8px] text-zinc-600 uppercase tracking-wide">DD Buf</p>
           <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : distColor(dist_drawdown)}`}>
-            {offline ? DASH : fmt(dist_drawdown)}
+            {fmt(dist_drawdown)}
           </p>
         </div>
         <div>
-          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Daily</p>
-          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : distColor(dist_to_daily_loss)}`}>
-            {offline ? DASH : fmt(dist_to_daily_loss)}
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Realized</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : pnlColor(realized_pnl)}`}>
+            {fmt(realized_pnl)}
           </p>
         </div>
         <div>
-          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Day P&L</p>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Open</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : pnlColor(dollar_open)}`}>
+            {fmt(dollar_open)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Total P&L</p>
           <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
-            {offline ? DASH : fmt(dayPnl)}
+            {fmt(dayPnl)}
           </p>
         </div>
       </div>
