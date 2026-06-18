@@ -309,12 +309,6 @@ export function MobileListRow({
 
       <div className="flex-1 grid grid-cols-4 gap-0.5 text-right">
         <div>
-          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">DD Buf</p>
-          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : distColor(dist_drawdown)}`}>
-            {fmt(dist_drawdown)}
-          </p>
-        </div>
-        <div>
           <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Realized</p>
           <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : pnlColor(realized_pnl)}`}>
             {fmt(realized_pnl)}
@@ -330,6 +324,12 @@ export function MobileListRow({
           <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Total P&L</p>
           <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : pnlColor(dayPnl)}`}>
             {fmt(dayPnl)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">DD Buf</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : distColor(dist_drawdown)}`}>
+            {fmt(dist_drawdown)}
           </p>
         </div>
       </div>
