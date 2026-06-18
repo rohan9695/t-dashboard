@@ -29,12 +29,20 @@ export function pnlColor(v: number) {
   return 'text-zinc-400'
 }
 
+export function formatAge(seconds: number): string {
+  if (seconds < 60)    return `${seconds}s`
+  if (seconds < 120)   return '1m'
+  if (seconds < 3600)  return `${Math.floor(seconds / 60)}m`
+  if (seconds < 7200)  return '1h'
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  if (seconds < 172800) return '1d'
+  return `${Math.floor(seconds / 86400)}d`
+}
+
 export function secondsAgo(iso: string, now = Date.now()): { text: string; stale: boolean } {
   const s = Math.floor((now - new Date(iso).getTime()) / 1_000)
   const stale = s >= 60
-  if (s < 60)  return { text: `${s}s ago`, stale }
-  if (s < 120) return { text: '1m ago', stale }
-  return { text: `${Math.floor(s / 60)}m ago`, stale }
+  return { text: `${formatAge(s)} ago`, stale }
 }
 
 const DASH = '——'

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
+import { formatAge } from './AccountCard'
 
 const STALE_THRESHOLD_MS = 60_000 // 60 seconds
 
@@ -25,8 +26,7 @@ export function StaleBanner() {
   if (!allStale) return null
 
   const ageSeconds = Math.floor((now - oldestUpdate) / 1_000)
-  const ageText =
-    ageSeconds < 120 ? `${ageSeconds}s` : `${Math.floor(ageSeconds / 60)}m`
+  const ageText = formatAge(ageSeconds)
 
   return (
     <div className="bg-amber-900/30 border-b border-amber-700/40 text-amber-400 text-xs font-medium px-4 py-2 text-center flex items-center justify-center gap-2">

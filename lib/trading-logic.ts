@@ -183,6 +183,10 @@ export function computeTradovateMetrics(
   if (row.day_date !== today) {
     row.day_date = today
     row.day_start_balance = avail
+    // New trading day — clear P&L carried over from previous session
+    row.realized_pnl  = 0
+    row.unrealized_pnl = 0
+    row.dollar_open   = 0
   }
   const dayStart = row.day_start_balance || avail
   const dailyLossUsed = Math.max(0, dayStart - avail)

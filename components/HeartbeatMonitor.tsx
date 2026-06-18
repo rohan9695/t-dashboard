@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { formatAge } from './AccountCard'
 
 const HEARTBEAT_TIMEOUT_MS = 60_000 // 60 seconds
 
@@ -33,7 +34,7 @@ export function HeartbeatMonitor() {
 
       if (ageMs > HEARTBEAT_TIMEOUT_MS) {
         const ageSeconds = Math.floor(ageMs / 1_000)
-        const ageText    = ageSeconds < 120 ? `${ageSeconds}s` : `${Math.floor(ageSeconds / 60)}m`
+        const ageText    = formatAge(ageSeconds)
         setLastSeenText(ageText)
         setNt8Down(true)
 
