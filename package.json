@@ -9,7 +9,7 @@
     "lint": "next lint",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "npm run cf:build && wrangler dev",
-    "cf:deploy": "npm run cf:build && opennextjs-cloudflare deploy"
+    "cf:deploy": "npm run cf:build && wrangler deploy"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^9.0.1",

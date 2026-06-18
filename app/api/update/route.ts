@@ -202,7 +202,8 @@ async function handleSnapshot(
     status:            'active',
   }
 
-  enrichAccount(row, false /* don't recompute — NT8 sent authoritative values */)
+  // Always run compute so dist_drawdown / dist_to_daily_loss are server-authoritative
+  enrichAccount(row, true)
   await upsertRow(supabase, row)
 
   return NextResponse.json({ status: 'ok', mode: 'snapshot' })
@@ -229,7 +230,7 @@ async function handleFullUpdate(
     realized_pnl:       Number(body.realized_pnl      ?? 0),
   }
 
-  enrichAccount(row, false)
+  enrichAccount(row, true)
   await upsertRow(supabase, row)
 
   return NextResponse.json({ status: 'ok' })
@@ -237,7 +238,19 @@ async function handleFullUpdate(
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  // Step 1 diagnostic: confirm payloads are arriving from NT8
+  const hasApiKey  = !!(req.headers.get('x-api-key') ?? req.headers.get('X-Api-Key'))
+  const hasBearer  = !!(req.headers.get('authorization'))
+  console.log('[/api/update] POST arrived', {
+    hasApiKey,
+    hasBearer,
+    apiKeyMatch: (req.headers.get('x-api-key') ?? req.headers.get('X-Api-Key')) === (process.env.API_KEY ?? ''),
+    envApiKeySet: !!(process.env.API_KEY),
+    ts: new Date().toISOString(),
+  })
+
   if (!checkApiKey(req)) {
+    console.warn('[/api/update] auth FAILED — NT8 key does not match API_KEY env var')
     return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 })
   }
 
@@ -247,6 +260,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ detail: 'Invalid JSON' }, { status: 400 })
   }
+
+  console.log('[/api/update] auth OK, account=', body.account, 'type=',
+    'item' in body ? 'ItemUpdate' :
+    ('total_available' in body && 'drawdown_auto' in body) ? 'Snapshot' : 'FullUpdate'
+  )
 
   const supabase = createServiceClient()
 

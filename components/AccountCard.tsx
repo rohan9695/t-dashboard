@@ -71,9 +71,10 @@ export function AccountRow({
 
   const dayPnl    = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
   const isBreached = status === 'breached'
-  const isStale    = status === 'stale'
 
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+  // isAged = last_update older than 60s (same threshold as HeartbeatMonitor + StaleBanner)
+  const isStale = isAged
 
   const rowBg = offline
     ? 'opacity-40 bg-zinc-900/30'
@@ -252,8 +253,8 @@ export function MobileAccountCard({
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
   const isBreached = status === 'breached'
-  const isStale    = status === 'stale'
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+  const isStale = isAged
 
   const dotColor = offline
     ? 'bg-zinc-700'

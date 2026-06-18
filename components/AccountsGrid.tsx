@@ -6,11 +6,10 @@ import { AccountRow, MobileAccountCard } from './AccountCard'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 
-const OFFLINE_THRESHOLD_MS = 5 * 60_000 // 5 minutes
+const OFFLINE_THRESHOLD_MS = 60_000 // 60 s — mirrors HeartbeatMonitor + StaleBanner
 
-function isOffline(row: { last_update: string; dollar_open: number }): boolean {
-  const stale = Date.now() - new Date(row.last_update).getTime() > OFFLINE_THRESHOLD_MS
-  return stale && row.dollar_open === 0
+function isOffline(row: { last_update: string }): boolean {
+  return Date.now() - new Date(row.last_update).getTime() > OFFLINE_THRESHOLD_MS
 }
 
 const COL_COUNT = ALL_COLUMNS.length

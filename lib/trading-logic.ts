@@ -34,12 +34,19 @@ export const ITEM_MAP: Record<string, string> = {
 
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────
 // (min_balance, starting, trailing_max, daily_loss_limit, safety_net_floor)
-// Edit these to match your actual Apex PA tiers
 const ACCOUNT_SIZE_PROFILES: [number, number, number, number, number][] = [
   [140000, 150000, 4000, 1500, 150100],
   [ 90000, 100000, 3000, 1200, 100100],
   [ 45000,  50000, 2000, 1000,  50100],
   [ 20000,  25000, 1000,  500,  25100],
+]
+
+// PAAPEX and LFE 50K accounts have a $2,500 trailing drawdown (not $2,000)
+const PAAPEX_LFE_PROFILES: [number, number, number, number, number][] = [
+  [140000, 150000, 4000, 1500, 150100],
+  [ 90000, 100000, 3000, 1200, 100100],
+  [ 45000,  50000, 2500, 1000,  50100],
+  [ 20000,  25000, 1500,  500,  25100],
 ]
 
 const APEX_50K_DEFAULT = {
@@ -56,8 +63,14 @@ export interface AccountProfile {
   safety_net_floor:  number
 }
 
-export function detectAccountProfile(balance: number): AccountProfile {
-  for (const [minBal, start, trail, dll, safety] of ACCOUNT_SIZE_PROFILES) {
+export function detectAccountProfile(balance: number, accountId = ''): AccountProfile {
+  const id = accountId.toUpperCase()
+  const profiles =
+    (id.startsWith('PAAPEX') || id.startsWith('LFE'))
+      ? PAAPEX_LFE_PROFILES
+      : ACCOUNT_SIZE_PROFILES
+
+  for (const [minBal, start, trail, dll, safety] of profiles) {
     if (balance >= minBal) {
       return {
         starting_balance:  start,
@@ -127,8 +140,10 @@ export interface AccountRow {
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────
-// Port of main.py compute_tradovate_metrics()
-// onlyMissing = true → don't overwrite fields NT8 already sent
+// dist_drawdown and dist_to_daily_loss are ALWAYS computed server-side from
+// equity + profile — never trusted from NT8 (NT8 has sent 0 when equity is
+// clearly non-zero, which broke the dashboard).
+// onlyMissing only controls dollar_open (NT8 may send it directly).
 export function computeTradovateMetrics(
   row: AccountRow,
   onlyMissing = true,
@@ -136,7 +151,7 @@ export function computeTradovateMetrics(
   const avail = row.total_available || 0
   if (avail <= 0) return
 
-  const p = detectAccountProfile(avail)
+  const p = detectAccountProfile(avail, row.account_id)
   const trail    = p.trailing_max
   const safety   = p.safety_net_floor
   const dllLimit = p.daily_loss_limit
@@ -153,15 +168,10 @@ export function computeTradovateMetrics(
   let threshold = Math.max(prevThreshold, peak - trail)
   threshold = Math.min(threshold, safety)
 
-  const nt = new Set(row.nt_fields || [])
-  function setField(key: keyof AccountRow, value: number) {
-    if (onlyMissing && nt.has(key)) return
-    ;(row as unknown as Record<string, unknown>)[key] = value
-  }
-
-  setField('drawdown_auto',      threshold)
-  setField('trailing_max',       trail)
-  setField('dist_drawdown',      avail - threshold)
+  // Always authoritative — server computes these from equity + profile
+  row.drawdown_auto   = threshold
+  row.trailing_max    = trail
+  row.dist_drawdown   = avail - threshold
 
   // Daily loss
   const today = new Date().toLocaleDateString('en-US', {
@@ -174,9 +184,11 @@ export function computeTradovateMetrics(
   }
   const dayStart = row.day_start_balance || avail
   const dailyLossUsed = Math.max(0, dayStart - avail)
-  setField('dist_to_daily_loss', Math.max(0, dllLimit - dailyLossUsed))
+  row.dist_to_daily_loss = Math.max(0, dllLimit - dailyLossUsed)
 
-  if (!nt.has('dollar_open')) {
+  // dollar_open: respect NT8 if it sent it
+  const nt = new Set(row.nt_fields || [])
+  if (!onlyMissing || !nt.has('dollar_open')) {
     row.dollar_open = row.unrealized_pnl || row.dollar_open || 0
   }
 }
