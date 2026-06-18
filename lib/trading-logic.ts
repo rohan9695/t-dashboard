@@ -109,6 +109,7 @@ export function emptyAccount(): AccountRow {
     tradovate_margin_used:      null,
     tradovate_daily_pnl:        null,
     tradovate_synced_at:        null,
+    replikanto_role:            null,
   }
 }
 
@@ -137,6 +138,7 @@ export interface AccountRow {
   tradovate_margin_used?:       number | null
   tradovate_daily_pnl?:         number | null
   tradovate_synced_at?:         string | null
+  replikanto_role?:              'leader' | 'follower' | null
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────

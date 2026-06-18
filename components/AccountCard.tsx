@@ -39,6 +39,19 @@ export function secondsAgo(iso: string, now = Date.now()): { text: string; stale
 
 const DASH = '——'
 
+function ReplikantoTag({ role }: { role?: 'leader' | 'follower' | null }) {
+  if (!role) return null
+  return role === 'leader' ? (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-violet-900/60 text-violet-300 border border-violet-700/50">
+      Leader
+    </span>
+  ) : (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-zinc-800 text-zinc-500 border border-zinc-700/50">
+      Follower
+    </span>
+  )
+}
+
 // Renders a single account table row.
 // `offline` = true applies grey treatment (Task 3D).
 // `visibleKeys` controls which columns are rendered.
@@ -117,6 +130,7 @@ export function AccountRow({
               <span title="NT8 only — Tradovate values missing" className="w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
             )}
           </div>
+          <ReplikantoTag role={row.replikanto_role} />
           {/* Apex Drawdown: show real Tradovate value if available */}
           {row.tradovate_trailing_drawdown != null && !offline && (
             <div className="flex items-center gap-1 mt-0.5">
@@ -267,9 +281,12 @@ export function MobileListRow({
           {isBest && !offline && <span className="text-[9px] text-amber-400 shrink-0">👑</span>}
           <span className="text-[11px] font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
         </div>
-        <span className={`text-[9px] ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
-          {offline ? 'OFFLINE' : ageText}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={`text-[9px] ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
+            {offline ? 'OFFLINE' : ageText}
+          </span>
+          <ReplikantoTag role={row.replikanto_role} />
+        </div>
       </div>
 
       <div className="flex-1 grid grid-cols-3 gap-0.5 text-right">
@@ -333,6 +350,7 @@ export function MobileAccountCard({
           <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
           {isBest && !offline && <span className="shrink-0 text-sm">👑</span>}
           <span className="text-xs font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
+          <ReplikantoTag role={row.replikanto_role} />
         </div>
         <span className={`text-[10px] shrink-0 ml-2 ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
           {offline ? 'OFFLINE' : ageText}
