@@ -110,7 +110,6 @@ export function emptyAccount(): AccountRow {
     tradovate_margin_used:      null,
     tradovate_daily_pnl:        null,
     tradovate_synced_at:        null,
-    replikanto_role:            null,
   }
 }
 
