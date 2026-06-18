@@ -23,7 +23,8 @@ export const ITEM_MAP: Record<string, string> = {
   DistDrawdown:              'dist_drawdown',
   DistanceToDrawdown:        'dist_drawdown',
   RealizedProfitLoss:        'realized_pnl',
-  GrossRealizedProfitLoss:   'realized_pnl',
+  // GrossRealizedProfitLoss intentionally omitted — it's pre-commission and
+  // would overwrite the correct net RealizedProfitLoss value sent shortly after
   // Task 6: new Tradovate fields from NT8 addon
   TrailingDrawdownValue:     'tradovate_trailing_drawdown',
   RealizedPnL:               'tradovate_realized_pnl',
