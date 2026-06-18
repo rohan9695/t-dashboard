@@ -405,8 +405,14 @@ export function MobileAccountCard({
         </div>
       </div>
 
-      {/* Bottom: open / day / equity in one line */}
+      {/* Bottom: realized / open / total P&L */}
       <div className="flex items-center justify-between text-[11px]">
+        <span>
+          <span className="text-zinc-600">Real </span>
+          <span className={`font-mono ${offline ? 'text-zinc-600' : pnlColor(realized_pnl)}`}>
+            {fmt(realized_pnl)}
+          </span>
+        </span>
         <span>
           <span className="text-zinc-600">Open </span>
           <span className={`font-mono ${offline ? 'text-zinc-600' : pnlColor(dollar_open)}`}>
@@ -414,15 +420,9 @@ export function MobileAccountCard({
           </span>
         </span>
         <span>
-          <span className="text-zinc-600">Day </span>
+          <span className="text-zinc-600">Total </span>
           <span className={`font-mono font-semibold ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
             {fmt(dayPnl)}
-          </span>
-        </span>
-        <span>
-          <span className="text-zinc-600">Eq </span>
-          <span className={`font-mono ${offline ? 'text-zinc-600' : 'text-zinc-300'}`}>
-            {fmtBalance(total_available)}
           </span>
         </span>
       </div>

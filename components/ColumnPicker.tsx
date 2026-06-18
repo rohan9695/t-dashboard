@@ -21,9 +21,9 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'trailing_max',       label: 'Trailing Max',  align: 'right', defaultVisible: false },
   { key: 'dist_drawdown',      label: 'Dist Drawdown', align: 'right', defaultVisible: true  },
   { key: 'dollar_open',        label: 'Dollar Open',   align: 'right', defaultVisible: false },
-  { key: 'realized_pnl',       label: 'Realized P&L', align: 'right', defaultVisible: false },
-  { key: 'unrealized_pnl',     label: 'Unrealized P&L',align:'right', defaultVisible: false },
-  { key: 'day_pnl',            label: 'Day P&L',       align: 'right', defaultVisible: true  },
+  { key: 'realized_pnl',       label: 'Realized P&L', align: 'right', defaultVisible: true  },
+  { key: 'unrealized_pnl',     label: 'Unrealized P&L',align:'right', defaultVisible: true  },
+  { key: 'day_pnl',            label: 'Total P&L',     align: 'right', defaultVisible: true  },
   { key: 'buffer',             label: 'Buffer',        align: 'right', defaultVisible: false },
 ]
 
