@@ -79,8 +79,11 @@ export function AccountsGrid() {
     }
   }, [])
 
-  // Sorted: active first (by account_id), then offline (greyed, sorted by last_update)
+  // Sorted: leader first, then active followers (by account_id), then offline
   const sorted = [...accounts].sort((a, b) => {
+    const aLeader = a.replikanto_role === 'leader' ? 0 : 1
+    const bLeader = b.replikanto_role === 'leader' ? 0 : 1
+    if (aLeader !== bLeader) return aLeader - bLeader
     const aOff = isOffline(a)
     const bOff = isOffline(b)
     if (aOff !== bOff) return aOff ? 1 : -1
