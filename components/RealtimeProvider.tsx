@@ -116,13 +116,31 @@ export function RealtimeProvider({
     }
   }, [subscribe])
 
-  // Initial subscription on mount
+  // Initial subscription + immediate data fetch on mount
+  // The server-side render may return empty (service key missing) — this ensures
+  // the anon client always hydrates accounts within ~500ms of page load.
   useEffect(() => {
     subscribe()
+
+    void (async () => {
+      try {
+        const { data } = await supabaseRef.current
+          .from('accounts')
+          .select('*')
+          .order('account_id')
+        if (data && data.length > 0) {
+          setAccounts(data as AccountRow[])
+          setLastUpdate(new Date())
+          setLoading(false)
+        }
+      } catch { /* ignore */ }
+    })()
+
     return () => {
       channelRef.current?.unsubscribe()
     }
-  }, [subscribe])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Polling fallback — fetches fresh data every 15 s in case Realtime
   // events are silently dropped (e.g. RLS not yet configured for anon role)
