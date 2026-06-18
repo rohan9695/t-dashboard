@@ -278,7 +278,7 @@ export function MobileListRow({
 }) {
   const {
     account_id, dollar_open, dist_to_daily_loss, dist_drawdown,
-    realized_pnl, unrealized_pnl, trailing_max, last_update, status,
+    realized_pnl, unrealized_pnl, trailing_max, total_available, last_update, status,
   } = row
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
@@ -327,9 +327,9 @@ export function MobileListRow({
           </p>
         </div>
         <div>
-          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">DD Buf</p>
-          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : distColor(dist_drawdown)}`}>
-            {fmt(dist_drawdown)}
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Net Liq</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-400' : 'text-zinc-100'}`}>
+            {fmt(total_available)}
           </p>
         </div>
       </div>
