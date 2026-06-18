@@ -25,7 +25,9 @@ export function StatusBar() {
     return () => clearInterval(id)
   }, [])
 
-  const liveCount = accounts.filter((a) => a.status === 'active').length
+  const liveCount = accounts.filter(
+    (a) => Date.now() - new Date(a.last_update).getTime() <= 60_000
+  ).length
 
   return (
     <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -49,11 +51,11 @@ export function StatusBar() {
           <span
             className={[
               'w-2 h-2 rounded-full transition-colors',
-              connected ? 'bg-emerald-400 shadow-[0_0_6px_#4ade80]' : 'bg-red-500',
+              !connected ? 'bg-red-500' : liveCount > 0 ? 'bg-emerald-400 shadow-[0_0_6px_#4ade80]' : 'bg-zinc-500',
             ].join(' ')}
           />
           <span className="text-zinc-300">
-            {connected ? `${liveCount} live` : 'Disconnected'}
+            {!connected ? 'Disconnected' : liveCount > 0 ? `${liveCount} live` : 'NT8 offline'}
           </span>
         </div>
 
