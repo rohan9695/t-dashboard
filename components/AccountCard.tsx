@@ -300,9 +300,6 @@ export function MobileListRow({
           <span className="text-[11px] font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className={`text-[9px] ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
-            {offline ? 'OFFLINE' : ageText}
-          </span>
           <ReplikantoTag role={row.replikanto_role} />
         </div>
       </div>
