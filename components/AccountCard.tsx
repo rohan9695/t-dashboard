@@ -106,7 +106,7 @@ export function AccountRow({
         : 'bg-zinc-900 hover:bg-zinc-800/60'
 
   const show = (key: string) => !visibleKeys || visibleKeys.includes(key)
-  const val  = (content: React.ReactNode) => offline ? <span className="text-zinc-600">{DASH}</span> : content
+  // Show last-known value greyed when offline — never show dashes
 
   return (
     <tr className={`border-b border-zinc-800 transition-all duration-300 ${rowBg}`}>
@@ -166,63 +166,73 @@ export function AccountRow({
       )}
 
       {show('total_available') && (
-        <td className="px-3 py-3 text-right font-mono text-sm text-zinc-100">
-          {val(fmtBalance(total_available))}
+        <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : 'text-zinc-100'}`}>
+          {fmtBalance(total_available)}
         </td>
       )}
 
       {show('dist_to_daily_loss') && (
         <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : distColor(dist_to_daily_loss)}`}>
-          {val(fmt(dist_to_daily_loss))}
+          {fmt(dist_to_daily_loss)}
         </td>
       )}
 
       {show('drawdown_auto') && (
-        <td className="px-3 py-3 text-right font-mono text-sm text-zinc-300">
-          {val(fmt(drawdown_auto))}
+        <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : 'text-zinc-300'}`}>
+          {fmt(drawdown_auto)}
         </td>
       )}
 
       {show('trailing_max') && (
-        <td className="px-3 py-3 text-right font-mono text-sm text-zinc-300">
-          {val(fmt(trailing_max))}
+        <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : 'text-zinc-300'}`}>
+          {fmt(trailing_max)}
         </td>
       )}
 
       {show('dist_drawdown') && (
         <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : distColor(dist_drawdown)}`}>
-          {val(fmt(dist_drawdown))}
+          {fmt(dist_drawdown)}
         </td>
       )}
 
       {show('dollar_open') && (
         <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : pnlColor(dollar_open)}`}>
-          {val(fmt(dollar_open))}
+          {fmt(dollar_open)}
         </td>
       )}
 
       {show('realized_pnl') && (
         <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : pnlColor(realized_pnl)}`}>
-          {val(fmt(realized_pnl))}
+          {fmt(realized_pnl)}
         </td>
       )}
 
       {show('unrealized_pnl') && (
         <td className={`px-3 py-3 text-right font-mono text-sm ${offline ? 'text-zinc-600' : pnlColor(unrealized_pnl)}`}>
-          {val(fmt(unrealized_pnl))}
+          {fmt(unrealized_pnl)}
         </td>
       )}
 
       {show('day_pnl') && (
         <td className={`px-3 py-3 text-right font-mono text-sm font-semibold ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
-          {val(fmt(dayPnl))}
+          {fmt(dayPnl)}
         </td>
       )}
 
       {show('buffer') && (
         <td className="px-3 py-3 w-24">
           {offline ? (
-            <span className="text-zinc-600 text-xs">{DASH}</span>
+            <div className="flex flex-col gap-1">
+              <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-zinc-700"
+                  style={{ width: `${trailing_max > 0 ? Math.min(100, Math.max(0, (dist_drawdown / trailing_max) * 100)) : 0}%` }}
+                />
+              </div>
+              <span className="text-[9px] text-zinc-700 font-mono text-right">
+                {trailing_max > 0 ? ((dist_drawdown / trailing_max) * 100).toFixed(1) : '0.0'}%
+              </span>
+            </div>
           ) : (
             <div className="flex flex-col gap-1">
               <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
@@ -370,13 +380,14 @@ export function MobileAccountCard({
         <div className="bg-zinc-800/60 rounded-lg p-3">
           <p className="text-[9px] text-zinc-500 uppercase tracking-widest mb-1.5">DD Buffer</p>
           <p className={`text-base font-mono font-semibold ${offline ? 'text-zinc-600' : distColor(dist_drawdown)}`}>
-            {offline ? DASH : fmt(dist_drawdown)}
+            {fmt(dist_drawdown)}
           </p>
-          {!offline && trailing_max > 0 && (
+          {trailing_max > 0 && (
             <div className="mt-2 h-1 w-full rounded-full bg-zinc-700 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-700 ${
-                  dist_drawdown <= DANGER_THRESHOLD ? 'bg-red-500'
+                  offline ? 'bg-zinc-600'
+                    : dist_drawdown <= DANGER_THRESHOLD ? 'bg-red-500'
                     : dist_drawdown <= CAUTION_THRESHOLD ? 'bg-amber-500'
                     : 'bg-emerald-500'
                 }`}
@@ -389,7 +400,7 @@ export function MobileAccountCard({
         <div className="bg-zinc-800/60 rounded-lg p-3">
           <p className="text-[9px] text-zinc-500 uppercase tracking-widest mb-1.5">Daily Left</p>
           <p className={`text-base font-mono font-semibold ${offline ? 'text-zinc-600' : distColor(dist_to_daily_loss)}`}>
-            {offline ? DASH : fmt(dist_to_daily_loss)}
+            {fmt(dist_to_daily_loss)}
           </p>
         </div>
       </div>
@@ -399,19 +410,19 @@ export function MobileAccountCard({
         <span>
           <span className="text-zinc-600">Open </span>
           <span className={`font-mono ${offline ? 'text-zinc-600' : pnlColor(dollar_open)}`}>
-            {offline ? DASH : fmt(dollar_open)}
+            {fmt(dollar_open)}
           </span>
         </span>
         <span>
           <span className="text-zinc-600">Day </span>
           <span className={`font-mono font-semibold ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
-            {offline ? DASH : fmt(dayPnl)}
+            {fmt(dayPnl)}
           </span>
         </span>
         <span>
           <span className="text-zinc-600">Eq </span>
           <span className={`font-mono ${offline ? 'text-zinc-600' : 'text-zinc-300'}`}>
-            {offline ? DASH : fmtBalance(total_available)}
+            {fmtBalance(total_available)}
           </span>
         </span>
       </div>
