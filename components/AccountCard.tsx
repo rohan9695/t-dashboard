@@ -233,6 +233,69 @@ export function AccountCard({ row, isBest }: { row: AccountRow; isBest: boolean 
   return <AccountRow row={row} isBest={isBest} now={now} />
 }
 
+// Compact single-row list item for the mobile list view
+export function MobileListRow({
+  row,
+  isBest,
+  now,
+  offline = false,
+}: {
+  row: AccountRow
+  isBest: boolean
+  now: number
+  offline?: boolean
+}) {
+  const {
+    account_id, dollar_open, dist_to_daily_loss, dist_drawdown,
+    realized_pnl, unrealized_pnl, trailing_max, last_update, status,
+  } = row
+
+  const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
+  const isBreached = status === 'breached'
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+
+  const dotColor = offline
+    ? 'bg-zinc-700'
+    : isBreached ? 'bg-red-500' : isAged ? 'bg-zinc-600' : 'bg-emerald-400'
+
+  return (
+    <div className={`flex items-center gap-2 px-3 py-2.5 border-b border-zinc-800/70 last:border-0 ${offline ? 'opacity-40' : ''}`}>
+      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+
+      <div className="w-[90px] shrink-0 min-w-0">
+        <div className="flex items-center gap-1">
+          {isBest && !offline && <span className="text-[9px] text-amber-400 shrink-0">👑</span>}
+          <span className="text-[11px] font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
+        </div>
+        <span className={`text-[9px] ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
+          {offline ? 'OFFLINE' : ageText}
+        </span>
+      </div>
+
+      <div className="flex-1 grid grid-cols-3 gap-0.5 text-right">
+        <div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">DD Buf</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : distColor(dist_drawdown)}`}>
+            {offline ? DASH : fmt(dist_drawdown)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Daily</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : distColor(dist_to_daily_loss)}`}>
+            {offline ? DASH : fmt(dist_to_daily_loss)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Day P&L</p>
+          <p className={`text-[11px] font-mono font-semibold leading-tight ${offline ? 'text-zinc-600' : pnlColor(dayPnl)}`}>
+            {offline ? DASH : fmt(dayPnl)}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Mobile card — 2-col risk grid, no horizontal scroll needed
 export function MobileAccountCard({
   row,

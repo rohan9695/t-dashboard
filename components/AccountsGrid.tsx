@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
-import { AccountRow, MobileAccountCard } from './AccountCard'
+import { AccountRow, MobileAccountCard, MobileListRow } from './AccountCard'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 
@@ -43,6 +43,20 @@ export function AccountsGrid() {
   const [visibleKeys, setVisibleKeys] = useState<string[]>(DEFAULT_VISIBLE)
   const [pickerOpen, setPickerOpen] = useState(false)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('td_view_mode') as 'card' | 'list' | null
+    if (saved) setViewMode(saved)
+  }, [])
+
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => {
+      const next = prev === 'card' ? 'list' : 'card'
+      localStorage.setItem('td_view_mode', next)
+      return next
+    })
+  }, [])
 
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
@@ -150,17 +164,63 @@ export function AccountsGrid() {
 
   return (
     <>
-      {/* ── Mobile: one card per account ─────────────────────── */}
-      <div className="md:hidden space-y-3">
-        {sorted.map((row) => (
-          <MobileAccountCard
-            key={row.account_id}
-            row={row}
-            isBest={activeAccounts.length > 1 && row.account_id === bestAccId}
-            now={now}
-            offline={isOffline(row)}
-          />
-        ))}
+      {/* ── Mobile: view mode toggle + content ───────────────── */}
+      <div className="md:hidden">
+        {/* Toggle button — top right */}
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={toggleViewMode}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-[11px] font-medium active:bg-zinc-700 transition-colors"
+            title={viewMode === 'card' ? 'Switch to list view' : 'Switch to card view'}
+          >
+            {viewMode === 'card' ? (
+              <>
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
+                  <rect x="1" y="1.5" width="11" height="1.2" rx="0.6" fill="currentColor"/>
+                  <rect x="1" y="5.9" width="11" height="1.2" rx="0.6" fill="currentColor"/>
+                  <rect x="1" y="10.3" width="11" height="1.2" rx="0.6" fill="currentColor"/>
+                </svg>
+                List
+              </>
+            ) : (
+              <>
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
+                  <rect x="1" y="1" width="4.5" height="4.5" rx="1" fill="currentColor"/>
+                  <rect x="7.5" y="1" width="4.5" height="4.5" rx="1" fill="currentColor"/>
+                  <rect x="1" y="7.5" width="4.5" height="4.5" rx="1" fill="currentColor"/>
+                  <rect x="7.5" y="7.5" width="4.5" height="4.5" rx="1" fill="currentColor"/>
+                </svg>
+                Cards
+              </>
+            )}
+          </button>
+        </div>
+
+        {viewMode === 'card' ? (
+          <div className="space-y-3">
+            {sorted.map((row) => (
+              <MobileAccountCard
+                key={row.account_id}
+                row={row}
+                isBest={activeAccounts.length > 1 && row.account_id === bestAccId}
+                now={now}
+                offline={isOffline(row)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+            {sorted.map((row) => (
+              <MobileListRow
+                key={row.account_id}
+                row={row}
+                isBest={activeAccounts.length > 1 && row.account_id === bestAccId}
+                now={now}
+                offline={isOffline(row)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Desktop: scrollable table ─────────────────────────── */}
