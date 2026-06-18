@@ -6,7 +6,7 @@ import { AccountRow, MobileAccountCard, MobileListRow } from './AccountCard'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 
-const OFFLINE_THRESHOLD_MS = 60_000 // 60 s — mirrors HeartbeatMonitor + StaleBanner
+const OFFLINE_THRESHOLD_MS = 30 * 60_000 // 30 min — between trades NT8 sends nothing
 
 function isOffline(row: { last_update: string }): boolean {
   return Date.now() - new Date(row.last_update).getTime() > OFFLINE_THRESHOLD_MS

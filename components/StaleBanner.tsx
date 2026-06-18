@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
 import { formatAge } from './AccountCard'
 
-const STALE_THRESHOLD_MS = 60_000 // 60 seconds
+const STALE_THRESHOLD_MS = 10 * 60_000 // 10 minutes — quiet between trades is normal
 
 export function StaleBanner() {
   const { accounts, loading } = useRealtime()

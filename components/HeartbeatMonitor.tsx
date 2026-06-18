@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatAge } from './AccountCard'
 
-const HEARTBEAT_TIMEOUT_MS = 60_000 // 60 seconds
+const HEARTBEAT_TIMEOUT_MS = 10 * 60_000 // 10 minutes — NT8 quiet between trades is normal
 
 export function HeartbeatMonitor() {
   const [nt8Down, setNt8Down] = useState(false)
