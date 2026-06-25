@@ -29,6 +29,16 @@ export function StatusBar() {
     (a) => Date.now() - new Date(a.last_update).getTime() <= 60_000
   ).length
 
+  // Only show "Disconnected" when we truly have no data — can't reach backend at all.
+  // If accounts are loaded (even stale), the polling fallback is working; label as "NT8 offline".
+  const isHardDisconnected = !connected && accounts.length === 0
+  const statusLabel = isHardDisconnected ? 'Disconnected'
+    : liveCount > 0 ? `${liveCount} live`
+    : 'NT8 offline'
+  const statusDot = isHardDisconnected ? 'bg-red-500'
+    : liveCount > 0 ? 'bg-emerald-400 shadow-[0_0_6px_#4ade80]'
+    : 'bg-zinc-500'
+
   return (
     <div className="flex items-center justify-between gap-3 flex-wrap">
       {/* Brand */}
@@ -48,15 +58,8 @@ export function StatusBar() {
       {/* Right: status + clock + gear */}
       <div className="flex items-center gap-1 sm:gap-2">
         <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-800/60 border border-zinc-700/50 rounded-full px-3 py-1.5">
-          <span
-            className={[
-              'w-2 h-2 rounded-full transition-colors',
-              !connected ? 'bg-red-500' : liveCount > 0 ? 'bg-emerald-400 shadow-[0_0_6px_#4ade80]' : 'bg-zinc-500',
-            ].join(' ')}
-          />
-          <span className="text-zinc-300">
-            {!connected ? 'Disconnected' : liveCount > 0 ? `${liveCount} live` : 'NT8 offline'}
-          </span>
+          <span className={`w-2 h-2 rounded-full transition-colors ${statusDot}`} />
+          <span className="text-zinc-300">{statusLabel}</span>
         </div>
 
         {lastUpdate && (
