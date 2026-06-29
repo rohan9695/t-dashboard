@@ -2,7 +2,6 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { type AccountRow } from '@/lib/trading-logic'
 import { RealtimeProvider } from '@/components/RealtimeProvider'
-import { StatusBar } from '@/components/StatusBar'
 import { SummaryBar } from '@/components/SummaryBar'
 import { AccountsGrid } from '@/components/AccountsGrid'
 import { KillswitchBanner } from '@/components/KillswitchBanner'
@@ -34,10 +33,6 @@ export default async function DashboardPage() {
         <VisibilityProvider>
           <div className="min-h-screen flex flex-col">
             <KillswitchBanner />
-
-            <header className="sticky top-0 z-20 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/60 px-4 pb-3 header-safe">
-              <StatusBar />
-            </header>
 
             <HeartbeatMonitor />
 
