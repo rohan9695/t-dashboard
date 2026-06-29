@@ -5,7 +5,6 @@ import { RealtimeProvider } from '@/components/RealtimeProvider'
 import { StatusBar } from '@/components/StatusBar'
 import { SummaryBar } from '@/components/SummaryBar'
 import { AccountsGrid } from '@/components/AccountsGrid'
-import { StaleBanner } from '@/components/StaleBanner'
 import { KillswitchBanner } from '@/components/KillswitchBanner'
 import { ToastProvider } from '@/components/ToastProvider'
 import { VisibilityProvider } from '@/components/VisibilityProvider'
@@ -41,7 +40,6 @@ export default async function DashboardPage() {
             </header>
 
             <HeartbeatMonitor />
-            <StaleBanner />
 
             <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
               <SummaryBar />
