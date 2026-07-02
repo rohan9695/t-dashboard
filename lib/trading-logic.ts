@@ -111,6 +111,7 @@ export function emptyAccount(): AccountRow {
     tradovate_daily_pnl:        null,
     tradovate_synced_at:        null,
     hidden:                     false,
+    last_batch_ts:              0,
   }
 }
 
@@ -143,6 +144,10 @@ export interface AccountRow {
   // true when NT8 no longer reports this account — hidden from the dashboard,
   // never auto-deleted (see /api/sync-accounts)
   hidden?:                       boolean
+  // Send-time (ms since epoch) of the last batch that was actually applied —
+  // guards against an older batch clobbering newer data when multiple hosts
+  // write the same row concurrently (see /api/batch-update)
+  last_batch_ts?:                number
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────

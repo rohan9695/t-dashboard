@@ -16,13 +16,14 @@ import {
 
 const API_KEY = process.env.API_KEY ?? 'change-me-set-in-env-file'
 
-// Payload: { "ACCOUNT_ID": { "NT8ItemName": value, ... }, ... }
-type BatchPayload = Record<string, Record<string, number>>
+// Payload: { "ACCOUNT_ID": { "NT8ItemName": value, ... }, ..., "_ts": <ms since epoch> }
+type BatchPayload = Record<string, Record<string, number>> & { _ts?: number }
 
 async function processAccount(
   supabase: ReturnType<typeof createServiceClient>,
   accountId: string,
   items: Record<string, number>,
+  batchTs: number,
 ): Promise<void> {
   const { data } = await supabase
     .from('accounts')
@@ -30,9 +31,18 @@ async function processAccount(
     .eq('account_id', accountId)
     .single()
 
+  // Triple-host fan-out means multiple hosts can process overlapping batches
+  // for the same account concurrently. Refuse to apply a batch older than
+  // whatever's already stored, so an in-flight stale write can never clobber
+  // fresher data that another host already wrote.
+  if (data && typeof (data as AccountRow).last_batch_ts === 'number' && batchTs <= (data as AccountRow).last_batch_ts!) {
+    return
+  }
+
   const row: AccountRow = data ? (data as AccountRow) : (() => {
     const r = emptyAccount(); r.account_id = accountId; return r
   })()
+  row.last_batch_ts = batchTs
 
   let anyKnown = false
   for (const [itemName, value] of Object.entries(items)) {
@@ -80,8 +90,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: 'Invalid JSON' }, { status: 400 })
   }
 
+  // _ts (client send-time, ms since epoch) is optional for backward compat —
+  // older addon builds without it just disable the staleness guard (always
+  // applies, matching the previous behavior).
+  const batchTs = typeof payload._ts === 'number' ? payload._ts : Date.now()
+
   const accounts = Object.entries(payload).filter(([id]) =>
-    !id.toLowerCase().startsWith('sim'),
+    id !== '_ts' && !id.toLowerCase().startsWith('sim'),
   )
 
   if (accounts.length === 0) {
@@ -92,7 +107,9 @@ export async function POST(req: NextRequest) {
 
   // Process all accounts in parallel — one DB read+write per account
   await Promise.all(
-    accounts.map(([accountId, items]) => processAccount(supabase, accountId, items)),
+    accounts.map(([accountId, items]) =>
+      processAccount(supabase, accountId, items as Record<string, number>, batchTs),
+    ),
   )
 
   return NextResponse.json({ status: 'ok', processed: accounts.length })
