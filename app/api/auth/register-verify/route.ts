@@ -10,8 +10,8 @@ import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs'
 
-const RP_ID  = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
-const ORIGIN = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard-pi.vercel.app'
+const RP_ID  = process.env.WEBAUTHN_RP_ID ?? 't-dashboard.rohan9695.workers.dev'
+const ORIGIN = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard.rohan9695.workers.dev'
 
 export async function POST(req: NextRequest) {
   const challengeToken = req.cookies.get('td_challenge')?.value

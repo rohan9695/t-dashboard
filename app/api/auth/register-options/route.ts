@@ -10,7 +10,7 @@ import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs' // @simplewebauthn/server uses Node crypto
 
-const RP_ID   = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
+const RP_ID   = process.env.WEBAUTHN_RP_ID ?? 't-dashboard.rohan9695.workers.dev'
 const RP_NAME = process.env.WEBAUTHN_RP_NAME ?? 'Trader Dashboard'
 
 export async function POST(_req: NextRequest) {
@@ -29,6 +29,10 @@ export async function POST(_req: NextRequest) {
     userName: 'trader',
     attestationType: 'none',
     authenticatorSelection: {
+      // platform = Face ID/Touch ID only. Without this, iOS offers "Scan QR
+      // Code" / security-key / another-device options too, since it treats
+      // cross-device passkeys as valid by default.
+      authenticatorAttachment: 'platform',
       residentKey: 'preferred',
       userVerification: 'required',
     },

@@ -10,8 +10,8 @@ import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs'
 
-const RP_ID  = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
-const ORIGIN = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard-pi.vercel.app'
+const RP_ID  = process.env.WEBAUTHN_RP_ID ?? 't-dashboard.rohan9695.workers.dev'
+const ORIGIN = process.env.WEBAUTHN_ORIGIN ?? 'https://t-dashboard.rohan9695.workers.dev'
 
 function b64urlToUint8Array(b64url: string): Uint8Array {
   const base64 = b64url.replace(/-/g, '+').replace(/_/g, '/')

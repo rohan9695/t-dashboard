@@ -10,7 +10,7 @@ import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 
 export const runtime = 'nodejs'
 
-const RP_ID = process.env.WEBAUTHN_RP_ID ?? 't-dashboard-pi.vercel.app'
+const RP_ID = process.env.WEBAUTHN_RP_ID ?? 't-dashboard.rohan9695.workers.dev'
 
 export async function POST(_req: NextRequest) {
   if (!AUTH_JWT_SECRET) {
