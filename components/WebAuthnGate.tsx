@@ -1,125 +1,70 @@
 'use client'
 // components/WebAuthnGate.tsx
-// Blocks the dashboard behind Face ID / WebAuthn on every visit.
-// - First visit (no credentials registered): shows registration flow
-// - Subsequent visits: immediately triggers Face ID authentication
-// - 5-minute idle → auto-blur + re-prompt Face ID
-// - Falls back to Supabase magic link if WebAuthn unavailable
+// Blocks the dashboard behind Face ID / WebAuthn.
+//
+// Design rule: WebAuthn is NEVER triggered automatically. Browsers (Safari/PWA
+// especially) will silently no-op a startAuthentication() call that isn't the
+// direct result of a user tap — that's what made Face ID "just not show up"
+// before. Every call here happens inside an onClick handler, no exceptions.
+//
+// Session lasts 24h (the session cookie's natural expiry, set server-side) —
+// no idle-timeout blur/re-prompt loop. Log out manually if you want to lock
+// it sooner.
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   startRegistration,
   startAuthentication,
   browserSupportsWebAuthn,
 } from '@simplewebauthn/browser'
 
-type AuthState = 'checking' | 'unauthenticated' | 'registering' | 'authenticating' | 'authenticated' | 'blurred'
-
-const IDLE_TIMEOUT_MS = 5 * 60_000 // 5 minutes
+type GateState = 'checking' | 'locked' | 'busy' | 'authenticated' | 'unsupported'
 
 export function WebAuthnGate({ children }: { children: React.ReactNode }) {
-  const [authState, setAuthState] = useState<AuthState>('checking')
+  const [state, setState] = useState<GateState>('checking')
   const [error, setError] = useState('')
-  const [magicEmail, setMagicEmail] = useState('')
-  const [magicSent, setMagicSent] = useState(false)
   const [hasCredentials, setHasCredentials] = useState(false)
-  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoLoginRef = useRef(false)
+  const [showRegisterFallback, setShowRegisterFallback] = useState(false)
 
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimer.current) clearTimeout(idleTimer.current)
-    idleTimer.current = setTimeout(() => {
-      setAuthState('blurred')
-    }, IDLE_TIMEOUT_MS)
-  }, [])
-
+  // Silent on load: check for an existing session and whether a passkey is
+  // already registered. Never calls WebAuthn here — no user gesture yet.
   useEffect(() => {
     async function init() {
       if (!browserSupportsWebAuthn()) {
-        setAuthState('unauthenticated')
+        setState('unsupported')
         return
       }
-
       try {
-        // Check for existing valid session (td_session cookie is httpOnly — probe an auth'd route)
-        const probe = await fetch('/api/heartbeat')
-        if (probe.ok) {
-          setAuthState('authenticated')
-          resetIdleTimer()
+        const sessionProbe = await fetch('/api/heartbeat')
+        if (sessionProbe.ok) {
+          setState('authenticated')
           return
         }
+      } catch { /* fall through to locked */ }
 
-        // No valid session — check whether credentials have been registered
+      try {
         const checkRes = await fetch('/api/auth/check')
         if (checkRes.ok) {
-          const { registered } = await checkRes.json() as { registered: boolean }
+          const { registered } = (await checkRes.json()) as { registered: boolean }
           setHasCredentials(registered)
         }
+      } catch { /* default hasCredentials = false */ }
 
-        setAuthState('unauthenticated')
-      } catch {
-        setAuthState('unauthenticated')
-      }
+      setState('locked')
     }
     init()
-  }, [resetIdleTimer])
-
-  // Reset idle timer on user activity when authenticated
-  useEffect(() => {
-    if (authState !== 'authenticated') return
-    const events = ['click', 'touchstart', 'keydown', 'mousemove']
-    events.forEach((e) => window.addEventListener(e, resetIdleTimer, { passive: true }))
-    resetIdleTimer()
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, resetIdleTimer))
-      if (idleTimer.current) clearTimeout(idleTimer.current)
-    }
-  }, [authState, resetIdleTimer])
-
-  const handleRegister = async () => {
-    setError('')
-    setAuthState('registering')
-    try {
-      const optRes = await fetch('/api/auth/register-options', { method: 'POST' })
-      const opts = await optRes.json()
-      if (!optRes.ok) {
-        throw new Error((opts as { error?: string }).error ?? 'Failed to get registration options')
-      }
-      const attResp = await startRegistration(opts)
-      const verRes = await fetch('/api/auth/register-verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(attResp),
-      })
-      const ver = await verRes.json()
-      if (ver.verified) {
-        setAuthState('authenticated')
-        resetIdleTimer()
-      } else {
-        setError(ver.error ?? 'Registration failed')
-        setAuthState('unauthenticated')
-      }
-    } catch (e) {
-      setError(String(e))
-      setAuthState('unauthenticated')
-    }
-  }
+  }, [])
 
   const handleLogin = useCallback(async () => {
     setError('')
-    setAuthState('authenticating')
+    setState('busy')
     try {
       const optRes = await fetch('/api/auth/login-options', { method: 'POST' })
       const opts = await optRes.json()
-      if (!optRes.ok) {
-        throw new Error((opts as { error?: string }).error ?? 'Failed to get login options')
-      }
+      if (!optRes.ok) throw new Error((opts as { error?: string }).error ?? 'Failed to start Face ID')
+
       const authResp = await startAuthentication(opts)
+
       const verRes = await fetch('/api/auth/login-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -127,87 +72,63 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
       })
       const ver = await verRes.json()
       if (ver.verified) {
-        setAuthState('authenticated')
-        resetIdleTimer()
+        setState('authenticated')
       } else {
-        setError(ver.error ?? 'Authentication failed')
-        setAuthState('unauthenticated')
+        setError(ver.error ?? 'Face ID did not match — try registering a new passkey below')
+        setShowRegisterFallback(true)
+        setState('locked')
+      }
+    } catch (e) {
+      // User cancelled, or no matching passkey for this domain
+      setError('Face ID was cancelled or unavailable — try registering a new passkey below')
+      setShowRegisterFallback(true)
+      setState('locked')
+    }
+  }, [])
+
+  const handleRegister = useCallback(async () => {
+    setError('')
+    setState('busy')
+    try {
+      const optRes = await fetch('/api/auth/register-options', { method: 'POST' })
+      const opts = await optRes.json()
+      if (!optRes.ok) throw new Error((opts as { error?: string }).error ?? 'Failed to start setup')
+
+      const attResp = await startRegistration(opts)
+
+      const verRes = await fetch('/api/auth/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attResp),
+      })
+      const ver = await verRes.json()
+      if (ver.verified) {
+        setState('authenticated')
+      } else {
+        setError(ver.error ?? 'Setup failed')
+        setState('locked')
       }
     } catch (e) {
       setError(String(e))
-      setAuthState('unauthenticated')
+      setState('locked')
     }
-  }, [resetIdleTimer])
+  }, [])
 
-  // Auto-trigger login once on initial load when credentials exist.
-  // autoLoginRef prevents an infinite loop if the user cancels Face ID.
-  useEffect(() => {
-    if (
-      authState === 'unauthenticated' &&
-      hasCredentials &&
-      browserSupportsWebAuthn() &&
-      !autoLoginRef.current
-    ) {
-      autoLoginRef.current = true
-      handleLogin()
-    }
-  }, [authState, hasCredentials, handleLogin])
-
-  const sendMagicLink = async () => {
-    if (!magicEmail) return
-    try {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      const { error } = await supabase.auth.signInWithOtp({
-        email: magicEmail,
-        options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
-      })
-      if (error) setError(error.message)
-      else setMagicSent(true)
-    } catch (e) {
-      setError(String(e))
-    }
+  if (state === 'authenticated') {
+    return <>{children}</>
   }
 
-  // ── Authenticated: render children (with blur overlay when idle) ──────────
-  if (authState === 'authenticated' || authState === 'blurred') {
+  if (state === 'checking') {
     return (
-      <div className="relative">
-        <div className={authState === 'blurred' ? 'blur-sm pointer-events-none select-none' : ''}>
-          {children}
-        </div>
-
-        {authState === 'blurred' && (
-          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-xl">
-            <div className="flex flex-col items-center gap-6 text-center px-8">
-              <div className="w-20 h-20 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-4xl">
-                🔒
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-zinc-100 mb-1">Session Locked</h2>
-                <p className="text-zinc-500 text-sm">Inactive for 5 minutes</p>
-              </div>
-              <button
-                onClick={handleLogin}
-                className="min-w-[200px] min-h-[44px] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm active:scale-95 transition-transform"
-              >
-                Unlock with Face ID
-              </button>
-              {error && <p className="text-red-400 text-xs">{error}</p>}
-            </div>
-          </div>
-        )}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950">
+        <div className="w-8 h-8 border-2 border-zinc-600 border-t-zinc-200 rounded-full animate-spin" />
       </div>
     )
   }
 
-  // ── Auth gate overlay ─────────────────────────────────────────────────────
-  const isLoading = authState === 'checking' || authState === 'registering' || authState === 'authenticating'
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 px-8">
       <div className="flex flex-col items-center gap-6 text-center max-w-xs w-full">
-        {/* Logo */}
         <svg viewBox="0 0 44 44" fill="none" className="w-12 h-12">
           <circle cx="16" cy="22" r="11" stroke="white" strokeWidth="2.2" />
           <circle cx="28" cy="22" r="11" stroke="white" strokeWidth="2.2" />
@@ -216,61 +137,41 @@ export function WebAuthnGate({ children }: { children: React.ReactNode }) {
         <div>
           <h1 className="text-xl font-bold text-zinc-100">Trader Dashboard</h1>
           <p className="text-zinc-500 text-sm mt-1">
-            {authState === 'checking' && 'Checking credentials…'}
-            {authState === 'registering' && 'Setting up Face ID…'}
-            {authState === 'authenticating' && 'Verifying Face ID…'}
-            {authState === 'unauthenticated' && (hasCredentials ? 'Face ID required' : 'Set up Face ID to continue')}
+            {state === 'unsupported' && 'Face ID / Touch ID is not available on this device.'}
+            {state === 'busy' && 'Waiting for Face ID…'}
+            {state === 'locked' && (hasCredentials ? 'Tap to unlock' : 'Set up Face ID to continue')}
           </p>
         </div>
 
-        {isLoading && (
+        {state === 'busy' && (
           <div className="w-8 h-8 border-2 border-zinc-600 border-t-zinc-200 rounded-full animate-spin" />
         )}
 
-        {authState === 'unauthenticated' && !hasCredentials && !isLoading && (
-          <button
-            onClick={handleRegister}
-            className="w-full min-h-[44pt] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm active:scale-95 transition-transform"
-          >
-            Set up Face ID
-          </button>
-        )}
-
-        {authState === 'unauthenticated' && hasCredentials && !isLoading && (
+        {state === 'locked' && hasCredentials && !showRegisterFallback && (
           <button
             onClick={handleLogin}
             className="w-full min-h-[44pt] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm active:scale-95 transition-transform"
           >
-            Authenticate with Face ID
+            Unlock with Face ID
           </button>
         )}
 
-        {/* Magic link fallback */}
-        {authState === 'unauthenticated' && !isLoading && (
-          <div className="w-full mt-2">
-            <p className="text-zinc-600 text-xs mb-2">
-              {!browserSupportsWebAuthn() ? 'Face ID not available on this device.' : 'Face ID not working?'}
-            </p>
-            {!magicSent ? (
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  placeholder="your@email.com"
-                  value={magicEmail}
-                  onChange={(e) => setMagicEmail(e.target.value)}
-                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 min-h-[44pt]"
-                />
-                <button
-                  onClick={sendMagicLink}
-                  className="bg-zinc-700 text-zinc-100 rounded-lg px-4 py-2 text-sm min-h-[44pt]"
-                >
-                  Send link
-                </button>
-              </div>
-            ) : (
-              <p className="text-emerald-400 text-sm">Magic link sent — check your email</p>
-            )}
-          </div>
+        {state === 'locked' && (!hasCredentials || showRegisterFallback) && (
+          <button
+            onClick={handleRegister}
+            className="w-full min-h-[44pt] bg-zinc-100 text-zinc-900 font-semibold rounded-xl px-6 py-3 text-sm active:scale-95 transition-transform"
+          >
+            {hasCredentials ? 'Register a new passkey' : 'Set up Face ID'}
+          </button>
+        )}
+
+        {state === 'locked' && showRegisterFallback && (
+          <button
+            onClick={handleLogin}
+            className="text-zinc-500 text-xs underline"
+          >
+            Try Face ID again instead
+          </button>
         )}
 
         {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
