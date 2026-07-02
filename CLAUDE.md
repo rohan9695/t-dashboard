@@ -6,7 +6,7 @@ A real-time prop firm account monitoring dashboard. It replaces a local Python F
 **Stack:**
 - **Frontend/Backend**: Next.js 15 (App Router)
 - **Database**: Supabase (PostgreSQL + Realtime WebSocket)
-- **Hosting**: Triple-redundant — Cloudflare Workers (primary), Vercel (backup), Netlify (backup). The NT8 addon POSTs every batch to all three in parallel so ingestion survives any one host being down.
+- **Hosting**: Dual-redundant — Cloudflare Workers (primary), Netlify (backup). The NT8 addon POSTs every batch to both in parallel so ingestion survives either host being down. Vercel was dropped from active use (account disabled, HTTP 402 billing issue) — the project still exists and could be re-added to the addon's `ApiUrls` if the billing gets fixed, but is not part of the current setup.
 - **Data source**: NinjaTrader 8 (NT8) C# addon (`AccountMonitor.cs`)
 
 ---
@@ -16,12 +16,14 @@ A real-time prop firm account monitoring dashboard. It replaces a local Python F
 ```
 NinjaTrader 8 (C# addon)
     │
-    │  POST /api/update  (X-Api-Key header)
-    ▼
-Vercel (Next.js)
-    │
-    │  upsert row
-    ▼
+    │  POST /api/batch-update  (X-Api-Key header, fanned out in parallel)
+    ├──────────────┐
+    ▼              ▼
+Cloudflare      Netlify
+(primary)       (backup)
+    │              │
+    └──────┬───────┘
+           ▼
 Supabase (accounts table)
     │
     │  Realtime WebSocket
@@ -32,14 +34,16 @@ Browser Dashboard (React)
 ---
 
 ## Key URLs
-- **Dashboard**: https://t-dashboard-pi.vercel.app
-- **API update endpoint**: https://t-dashboard-pi.vercel.app/api/update
+- **Dashboard (primary)**: https://t-dashboard.rohan9695.workers.dev
+- **Dashboard (backup)**: https://t-dashboard-971.netlify.app
+- **Batch update endpoint**: `<host>/api/batch-update`
 - **Supabase project**: https://gvbtnsktudmgmpamkhnl.supabase.co
 - **GitHub repo**: https://github.com/rohan9695/t-dashboard
+- ~~Vercel: https://t-dashboard-pi.vercel.app~~ — dropped, account disabled (402 billing issue)
 
 ---
 
-## Environment Variables (Vercel)
+## Environment Variables (Cloudflare + Netlify)
 | Variable | Purpose |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
@@ -150,9 +154,10 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 ---
 
 ## NinjaTrader Addon (`AccountMonitor.cs`)
-- Subscribes to `AccountItemUpdate` events for all accounts
-- Sends ItemUpdate payloads to `/api/update` with `X-Api-Key` header
-- Currently deployed at: hardcoded Vercel URL in the C# file
+- Subscribes to `AccountItemUpdate` events, only for accounts with `Connection.Status == Connected` (excludes demo/backtest/disconnected accounts)
+- Batches updates and POSTs to `/api/batch-update` with `X-Api-Key` header, fanned out in parallel to both active hosts (`ApiUrls` array in the C# file — Vercel intentionally not in this list, see Known Issues)
+- Flush interval is time-of-day aware: 3s during the usage window (9am-1pm weekdays, local NT8 clock), 30s otherwise, to limit free-tier request volume when nobody's watching
+- Also reports its live account list on change (not on a timer) to `/api/sync-accounts`, which soft-hides accounts NT8 no longer reports (never hard-deletes)
 
 ---
 
@@ -171,22 +176,18 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 ## Rules for AI Tools Working on This Project
 
 1. **Never delete files without asking the user first**
-2. **Never commit secrets** — `SUPABASE_SERVICE_ROLE_KEY` and `API_KEY` must stay in Vercel env vars only
-3. **Push to both branches** when making changes — `main` and `vercel/react-server-components-cve-vu-7f5ap6` (Vercel deploys from both):
-   ```
-   git push origin main
-   git push origin main:vercel/react-server-components-cve-vu-7f5ap6 --force
-   ```
+2. **Never commit secrets** — `SUPABASE_SERVICE_ROLE_KEY` and `API_KEY` must stay in each host's env vars only
+3. **Push to `main` only** — Netlify auto-deploys from `main` via its GitHub link; Cloudflare does NOT auto-deploy and needs a manual `wrangler deploy` (see deployment memory) after every change that should go live there. The old `vercel/react-server-components-cve-vu-7f5ap6` branch is no longer force-pushed to since Vercel was dropped — leave it as-is.
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
-6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Vercel, Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
+6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
-8. **Local build test** — always run `npm run build` locally before pushing to catch TypeScript errors before Vercel does
+8. **Local build test** — always run `npm run build` (and `npm run cf:build` if the change touches API routes) locally before pushing to catch errors before they hit either host
 
 ---
 
 ## Known Issues / History
-- Vercel auto-created a branch `vercel/react-server-components-cve-vu-7f5ap6` for a CVE fix — this branch is kept in sync with `main` via force push
+- Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical
 - `NEXT_PUBLIC_SUPABASE_URL` was incorrectly set to the Supabase dashboard URL instead of the API URL during initial setup — hardcoded fallbacks were added to `client.ts` and `server.ts` to prevent this from breaking the app again
 - Next.js was upgraded from `15.1.0` → `15.5.19` to resolve CVE-2025-66478
 
