@@ -80,7 +80,9 @@ export function AccountsGrid() {
   }, [])
 
   // Sorted: leader first, then active followers (by account_id), then offline
-  const sorted = [...accounts].sort((a, b) => {
+  // Hidden accounts (no longer reported by NT8) are excluded entirely — never
+  // hard-deleted server-side, just kept out of view. See /api/sync-accounts.
+  const sorted = accounts.filter((a) => !a.hidden).sort((a, b) => {
     const aLeader = a.replikanto_role === 'leader' ? 0 : 1
     const bLeader = b.replikanto_role === 'leader' ? 0 : 1
     if (aLeader !== bLeader) return aLeader - bLeader

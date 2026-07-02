@@ -5,7 +5,6 @@
 import { NextResponse } from 'next/server'
 import { ITEM_MAP } from '@/lib/trading-logic'
 
-
 export async function GET() {
   return NextResponse.json({
     mapped_items: Object.keys(ITEM_MAP),

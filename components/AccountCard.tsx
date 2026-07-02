@@ -3,8 +3,6 @@
 import { useEffect, useState } from 'react'
 import { DANGER_THRESHOLD, CAUTION_THRESHOLD, type AccountRow } from '@/lib/trading-logic'
 
-const STALE_MS = 60_000 // 60 s — amber threshold
-
 export function fmt(n: number) {
   const v = n || 0
   const sign = v < 0 ? '-' : ''
@@ -94,7 +92,7 @@ export function AccountRow({
   const isBreached = status === 'breached'
 
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
-  // isAged = last_update older than 60s (same threshold as HeartbeatMonitor + StaleBanner)
+  // isAged = last_update older than 10min (same threshold as HeartbeatMonitor)
   const isStale = isAged
 
   const rowBg = offline
@@ -277,8 +275,8 @@ export function MobileListRow({
   offline?: boolean
 }) {
   const {
-    account_id, dollar_open, dist_to_daily_loss, dist_drawdown,
-    realized_pnl, unrealized_pnl, trailing_max, total_available, last_update, status,
+    account_id, dollar_open,
+    realized_pnl, unrealized_pnl, total_available, last_update, status,
   } = row
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)

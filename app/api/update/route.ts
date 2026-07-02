@@ -95,7 +95,7 @@ async function checkRiskLockout(
     .eq('account_id', accountId)
     .single()
 
-  if ((acct as Record<string, unknown> | null)?.locked === true) return true
+  if ((acct as unknown as Record<string, unknown> | null)?.locked === true) return true
 
   // Lock it
   await supabase

@@ -9,6 +9,7 @@
 // Exclusions (handled separately):
 //   /api/auth/*          – WebAuthn registration/login (unauthenticated)
 //   /api/killswitch*     – has its own KILLSWITCH_TOKEN
+//   /api/set-leader      – dashboard control, unauthenticated (see route file)
 //   /api/heartbeat       – keep-warm function uses Bearer above
 //
 // Access logging: every hit is written async to access_logs.
@@ -29,6 +30,7 @@ const ALERT_EMAIL      = process.env.ALERT_EMAIL ?? ''
 const OPEN_PREFIXES = [
   '/api/auth/',
   '/api/killswitch',
+  '/api/set-leader', // dashboard-only control, matches the dashboard's current unauthenticated posture
 ]
 
 async function isKillswitchActive(): Promise<boolean> {

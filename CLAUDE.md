@@ -4,9 +4,9 @@
 A real-time prop firm account monitoring dashboard. It replaces a local Python FastAPI server (`main.py`) + ngrok setup with a fully hosted, always-on solution.
 
 **Stack:**
-- **Frontend/Backend**: Next.js 15 (App Router, Edge runtime for API routes)
+- **Frontend/Backend**: Next.js 15 (App Router)
 - **Database**: Supabase (PostgreSQL + Realtime WebSocket)
-- **Hosting**: Vercel
+- **Hosting**: Triple-redundant — Cloudflare Workers (primary), Vercel (backup), Netlify (backup). The NT8 addon POSTs every batch to all three in parallel so ingestion survives any one host being down.
 - **Data source**: NinjaTrader 8 (NT8) C# addon (`AccountMonitor.cs`)
 
 ---
@@ -179,7 +179,7 @@ The dashboard auto-detects account size and applies correct drawdown rules:
    ```
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
-6. **Edge runtime** — `/api/update`, `/api/data`, `/api/debug/items` all use `export const runtime = 'edge'`. Don't use Node.js-only APIs in these routes
+6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Vercel, Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
 8. **Local build test** — always run `npm run build` locally before pushing to catch TypeScript errors before Vercel does
 

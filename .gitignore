@@ -6,3 +6,9 @@ out/
 *.db
 account_state.json
 .open-next/
+
+.vercel
+.env*
+
+# Local Netlify folder
+.netlify

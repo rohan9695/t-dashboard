@@ -40,7 +40,7 @@ export function PnLCalendar() {
   const cells: DayData[] = []
   for (let i = 364; i >= 0; i--) {
     const d = new Date(today.getTime() - i * 86_400_000)
-    const key = d.toLocaleDateString('en-CA')
+    const key = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
     cells.push({ date: key, pnl: days[key] ?? 0 })
   }
 

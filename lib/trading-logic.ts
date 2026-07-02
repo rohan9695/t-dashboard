@@ -110,6 +110,7 @@ export function emptyAccount(): AccountRow {
     tradovate_margin_used:      null,
     tradovate_daily_pnl:        null,
     tradovate_synced_at:        null,
+    hidden:                     false,
   }
 }
 
@@ -139,6 +140,9 @@ export interface AccountRow {
   tradovate_daily_pnl?:         number | null
   tradovate_synced_at?:         string | null
   replikanto_role?:              'leader' | 'follower' | null
+  // true when NT8 no longer reports this account — hidden from the dashboard,
+  // never auto-deleted (see /api/sync-accounts)
+  hidden?:                       boolean
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────
@@ -228,4 +232,4 @@ export function enrichAccount(
 // ── THRESHOLDS (mirror main.py constants) ────────────────────────────────────
 export const DANGER_THRESHOLD  = 300
 export const CAUTION_THRESHOLD = 700
-export const ACCOUNT_TIMEOUT_SECONDS = 60
+export const ACCOUNT_TIMEOUT_SECONDS = 1800 // 30 min — matches AccountsGrid's offline threshold

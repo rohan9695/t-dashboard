@@ -6,7 +6,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { ACCOUNT_TIMEOUT_SECONDS } from '@/lib/trading-logic'
 
-
 export async function GET(req: NextRequest) {
   // Simple session check — if using Supabase Auth, validate JWT here
   // For now: require the API key (same pattern as dashboard auth in main.py)

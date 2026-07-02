@@ -11,6 +11,11 @@ import {
 
 type PrefsState = Record<PreferenceKey, boolean>
 
+interface LeaderCandidate {
+  account_id: string
+  replikanto_role: 'leader' | 'follower' | null
+}
+
 const SECTIONS: Array<{ title: string; keys: PreferenceKey[] }> = [
   {
     title: 'Notifications',
@@ -50,7 +55,36 @@ export default function SettingsPage() {
   const router = useRouter()
   const [prefs, setPrefs] = useState<PrefsState>({ ...PREFERENCE_DEFAULTS })
   const [saving, setSaving] = useState<Set<PreferenceKey>>(new Set())
+  const [accounts, setAccounts] = useState<LeaderCandidate[]>([])
+  const [settingLeader, setSettingLeader] = useState<string | null>(null)
   const supabaseRef = useRef(createClient())
+
+  useEffect(() => {
+    supabaseRef.current
+      .from('accounts')
+      .select('account_id, replikanto_role')
+      .eq('hidden', false)
+      .order('account_id')
+      .then(({ data }) => {
+        if (data) setAccounts(data as LeaderCandidate[])
+      })
+  }, [])
+
+  const setLeader = useCallback(async (accountId: string) => {
+    setSettingLeader(accountId)
+    setAccounts((prev) => prev.map((a) => ({
+      ...a,
+      replikanto_role: a.account_id === accountId ? 'leader' : (a.replikanto_role === 'leader' ? 'follower' : a.replikanto_role),
+    })))
+    try {
+      await fetch('/api/set-leader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId }),
+      })
+    } catch { /* non-critical — dashboard realtime will resync on next update */ }
+    setSettingLeader(null)
+  }, [])
 
   useEffect(() => {
     // Instant restore from localStorage — no loading flash
@@ -115,6 +149,40 @@ export default function SettingsPage() {
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-6 space-y-8">
+        {accounts.length > 0 && (
+          <div>
+            <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-3 px-1">
+              Replikanto Leader
+            </h2>
+            <div className="space-y-1">
+              {accounts.map((a) => {
+                const isLeader = a.replikanto_role === 'leader'
+                const isBusy   = settingLeader === a.account_id
+                return (
+                  <div
+                    key={a.account_id}
+                    role="button"
+                    aria-pressed={isLeader}
+                    onClick={() => { if (!isLeader && !isBusy) setLeader(a.account_id) }}
+                    className={`flex items-center gap-3 bg-zinc-900 border rounded-xl px-4 py-3 min-h-[56px] select-none ${
+                      isLeader ? 'border-violet-700/60' : 'border-zinc-800 cursor-pointer active:bg-zinc-800/80'
+                    }`}
+                  >
+                    <span className="flex-1 text-sm font-mono text-zinc-100 truncate">{a.account_id}</span>
+                    {isLeader ? (
+                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest bg-violet-900/60 text-violet-300 border border-violet-700/50 rounded px-2 py-1">
+                        Leader
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-[11px] text-zinc-500">{isBusy ? 'Setting…' : 'Set as leader'}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {SECTIONS.map((section) => (
           <div key={section.title}>
             <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-3 px-1">
