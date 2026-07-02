@@ -289,7 +289,7 @@ export function MobileListRow({
     : 'bg-emerald-400'
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-zinc-800/70 last:border-0">
+    <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/70 last:border-0">
       <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
 
       <div className="w-[90px] shrink-0 min-w-0">
@@ -297,9 +297,13 @@ export function MobileListRow({
           {isBest && !offline && <span className="text-[9px] text-amber-400 shrink-0">👑</span>}
           <span className="text-[11px] font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <ReplikantoTag role={row.replikanto_role} />
-        </div>
+        {/* Only the leader gets a badge line — absence already implies follower,
+            so skipping it for the other 9 rows saves a whole line each */}
+        {row.replikanto_role === 'leader' && (
+          <div className="flex items-center gap-1">
+            <ReplikantoTag role={row.replikanto_role} />
+          </div>
+        )}
       </div>
 
       <div className="flex-1 grid grid-cols-4 gap-0.5 text-right">

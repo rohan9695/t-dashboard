@@ -45,7 +45,7 @@ export function SummaryBar() {
   const { accounts } = useRealtime()
   const { visible, toggle } = useVisibility()
 
-  const active = accounts.filter((a) => a.status === 'active')
+  const active = accounts.filter((a) => a.status === 'active' && !a.hidden)
 
   let totalBalance = 0
   let totalProfit  = 0
