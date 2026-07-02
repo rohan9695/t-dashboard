@@ -31,7 +31,7 @@ export default async function DashboardPage() {
     <RealtimeProvider initialAccounts={initialAccounts}>
       <ToastProvider>
         <VisibilityProvider>
-          <div className="min-h-screen flex flex-col">
+          <div className="min-h-screen flex flex-col header-safe">
             <KillswitchBanner />
 
             <HeartbeatMonitor />
