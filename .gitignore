@@ -12,3 +12,6 @@ account_state.json
 
 # Local Netlify folder
 .netlify
+
+# Supabase CLI local state
+supabase/.temp/

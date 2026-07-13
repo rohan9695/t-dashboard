@@ -6,7 +6,7 @@ A real-time prop firm account monitoring dashboard. It replaces a local Python F
 **Stack:**
 - **Frontend/Backend**: Next.js 15 (App Router)
 - **Database**: Supabase (PostgreSQL + Realtime WebSocket)
-- **Hosting**: Dual-redundant — Cloudflare Workers (primary), Netlify (backup). The NT8 addon POSTs every batch to both in parallel so ingestion survives either host being down. Vercel was dropped from active use (account disabled, HTTP 402 billing issue) — the project still exists and could be re-added to the addon's `ApiUrls` if the billing gets fixed, but is not part of the current setup.
+- **Hosting**: Cloudflare Workers (primary, 100k req/day free) + Supabase Edge Functions (second always-on ingestion endpoint, 500k req/month free) + Netlify (failover + backup dashboard UI). The NT8 addon POSTs every batch to Cloudflare and the Supabase edge function in parallel; Netlify only receives a batch when BOTH primaries fail, because its ~125k invocations/month free tier is below the always-on fan-out volume (it hit 50% mid-July 2026, which forced this change). Vercel was dropped from active use (account disabled, HTTP 402 billing issue) — the project still exists and could be re-added to the addon's `ApiUrls` if the billing gets fixed, but is not part of the current setup.
 - **Data source**: NinjaTrader 8 (NT8) C# addon (`AccountMonitor.cs`)
 
 ---
@@ -16,14 +16,14 @@ A real-time prop firm account monitoring dashboard. It replaces a local Python F
 ```
 NinjaTrader 8 (C# addon)
     │
-    │  POST /api/batch-update  (X-Api-Key header, fanned out in parallel)
-    ├──────────────┐
-    ▼              ▼
-Cloudflare      Netlify
-(primary)       (backup)
-    │              │
-    └──────┬───────┘
-           ▼
+    │  POST batch-update  (X-Api-Key header, fanned out in parallel)
+    ├───────────────────┬──────────────────────────┐
+    ▼                   ▼                          ▼ (failover only —
+Cloudflare        Supabase Edge Function        Netlify   fires when both
+(primary)         (functions/v1/batch-update)   (backup)  primaries fail)
+    │                   │                          │
+    └─────────┬─────────┴──────────────────────────┘
+              ▼
 Supabase (accounts table)
     │
     │  Realtime WebSocket
@@ -155,7 +155,7 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 
 ## NinjaTrader Addon (`AccountMonitor.cs`)
 - Subscribes to `AccountItemUpdate` events, only for accounts with `Connection.Status == Connected` (excludes demo/backtest/disconnected accounts)
-- Batches updates and POSTs to `/api/batch-update` with `X-Api-Key` header, fanned out in parallel to both active hosts (`ApiUrls` array in the C# file — Vercel intentionally not in this list, see Known Issues)
+- Batches updates and POSTs to the batch-update endpoint with `X-Api-Key` header, fanned out in parallel to both always-on targets (`ApiUrls` array in the C# file: Cloudflare + Supabase edge function; Netlify is `FailoverUrl`, hit only when both primaries fail; Vercel intentionally absent, see Known Issues)
 - Flush interval is time-of-day aware: 3s during the usage window (9am-1pm weekdays, local NT8 clock), 30s otherwise, to limit free-tier request volume when nobody's watching
 - Also reports its live account list on change (not on a timer) to `/api/sync-accounts`, which soft-hides accounts NT8 no longer reports (never hard-deletes)
 
@@ -178,7 +178,7 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 1. **Never delete files without asking the user first**
 2. **Never commit secrets** — `SUPABASE_SERVICE_ROLE_KEY` and `API_KEY` must stay in each host's env vars only
 3. **Push to `main` only** — Netlify auto-deploys from `main` via its GitHub link; Cloudflare does NOT auto-deploy and needs a manual `wrangler deploy` (see deployment memory) after every change that should go live there. The old `vercel/react-server-components-cve-vu-7f5ap6` branch is no longer force-pushed to since Vercel was dropped — leave it as-is.
-4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP
+4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP. Also: `supabase/functions/_shared/trading-logic.ts` is a mirror copy of `lib/trading-logic.ts` for the Deno edge functions — any change to the lib file must be copied there and the `batch-update`/`sync-accounts` edge functions re-deployed (`npx supabase functions deploy <name> --no-verify-jwt --project-ref gvbtnsktudmgmpamkhnl`)
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
 6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
