@@ -65,6 +65,12 @@ async function processAccount(
   enrichAccount(row, true)
   row.last_update = new Date().toISOString()
 
+  // An account actively sending data is live by definition. This must
+  // override any hidden=true — sync-accounts can wrongly hide a live account
+  // during NT8 connection churn (partial live lists at startup), and this
+  // full-row upsert would otherwise round-trip that stale flag forever.
+  row.hidden = false
+
   if (
     row.total_available > 0 &&
     ((row.dist_drawdown ?? 0) <= 0 || (row.dist_to_daily_loss ?? 0) <= 0)
