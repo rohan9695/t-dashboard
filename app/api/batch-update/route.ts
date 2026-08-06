@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import {
   ITEM_MAP,
+  ITEM_PRIORITY,
   emptyAccount,
   enrichAccount,
   type AccountRow,
@@ -45,10 +46,20 @@ async function processAccount(
   row.last_batch_ts = batchTs
 
   let anyKnown = false
+  // Best ITEM_PRIORITY already applied to each field in this batch, so a weaker
+  // source (CashValue) can never overwrite a stronger one (NetLiquidation)
+  // just by appearing later in the payload.
+  const appliedPriority: Record<string, number> = {}
+
   for (const [itemName, value] of Object.entries(items)) {
     const field = ITEM_MAP[itemName]
     if (!field) continue
     anyKnown = true
+
+    const priority = ITEM_PRIORITY[itemName] ?? 0
+    if (field in appliedPriority && appliedPriority[field] > priority) continue
+    appliedPriority[field] = priority
+
     ;(row as unknown as Record<string, unknown>)[field] = value
 
     // Keep open P&L fields in sync — clearing one must clear both
@@ -80,7 +91,18 @@ async function processAccount(
     row.status = 'active'
   }
 
-  await supabase.from('accounts').upsert(row, { onConflict: 'account_id' })
+  // A failed write here used to be invisible: the endpoint still returned
+  // {status:'ok'} and the dashboard just kept showing the last good row, which
+  // is indistinguishable from "NT8 sent nothing". Log it so a silent write
+  // failure is diagnosable from the host's logs.
+  const { error } = await supabase
+    .from('accounts')
+    .upsert(row, { onConflict: 'account_id' })
+
+  if (error) {
+    console.error(`[batch-update] upsert failed for ${accountId}:`, error.message)
+    throw new Error(`upsert failed for ${accountId}: ${error.message}`)
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -111,12 +133,22 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Process all accounts in parallel — one DB read+write per account
-  await Promise.all(
+  // Process all accounts in parallel — one DB read+write per account.
+  // allSettled, not all: one account failing must not discard the writes for
+  // every other account in the same batch.
+  const results = await Promise.allSettled(
     accounts.map(([accountId, items]) =>
       processAccount(supabase, accountId, items as Record<string, number>, batchTs),
     ),
   )
+
+  const failed = results.filter((r) => r.status === 'rejected').length
+  if (failed > 0) {
+    return NextResponse.json(
+      { status: 'partial', processed: accounts.length - failed, failed },
+      { status: 500 },
+    )
+  }
 
   return NextResponse.json({ status: 'ok', processed: accounts.length })
 }

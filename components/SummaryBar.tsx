@@ -45,12 +45,17 @@ export function SummaryBar() {
   const { accounts } = useRealtime()
   const { visible, toggle } = useVisibility()
 
-  const active = accounts.filter((a) => a.status === 'active' && !a.hidden)
+  // Count and sum every account the grid shows. Filtering on status==='active'
+  // silently dropped breached accounts, so the header read "1" while five rows
+  // were listed below it, and Total Balance omitted the balance still sitting
+  // in those accounts. A breached account still holds money and still has P&L —
+  // hidden (NT8 no longer reports it) is the only reason to leave one out.
+  const shown = accounts.filter((a) => !a.hidden)
 
   let totalBalance = 0
   let totalProfit  = 0
 
-  for (const a of active) {
+  for (const a of shown) {
     totalBalance += a.total_available || 0
     totalProfit  +=
       (a.realized_pnl || 0) + (a.unrealized_pnl || a.dollar_open || 0)
@@ -65,7 +70,7 @@ export function SummaryBar() {
 
   return (
     <div className="relative flex gap-3">
-      <Stat label="Total Accounts" value={String(active.length)} />
+      <Stat label="Total Accounts" value={String(shown.length)} />
       <Stat
         label="Total Balance"
         value={visible ? fmtBalance(totalBalance) : HIDDEN}

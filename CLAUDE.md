@@ -179,6 +179,7 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 2. **Never commit secrets** — `SUPABASE_SERVICE_ROLE_KEY` and `API_KEY` must stay in each host's env vars only
 3. **Push to `main` only** — Netlify auto-deploys from `main` via its GitHub link; Cloudflare does NOT auto-deploy and needs a manual `wrangler deploy` (see deployment memory) after every change that should go live there. The old `vercel/react-server-components-cve-vu-7f5ap6` branch is no longer force-pushed to since Vercel was dropped — leave it as-is.
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP. Also: `supabase/functions/_shared/trading-logic.ts` is a mirror copy of `lib/trading-logic.ts` for the Deno edge functions — any change to the lib file must be copied there and the `batch-update`/`sync-accounts` edge functions re-deployed (`npx supabase functions deploy <name> --no-verify-jwt --project-ref gvbtnsktudmgmpamkhnl`)
+   - **ITEM_PRIORITY** — when several NT8 items map to the *same* field but don't mean the same thing, rank them in `ITEM_PRIORITY` (higher wins) instead of relying on payload order. `total_available` has three sources and only `NetLiquidation` includes open-position P&L; `CashValue` doesn't move while a position is open, so letting it land last freezes equity — and `dist_drawdown` / `dist_to_daily_loss` are both derived from `total_available`, so the whole risk display freezes with it. Unranked items stay priority 0 (last-wins).
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
 6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
@@ -187,6 +188,19 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 10. **Cloudflare deploy on this Windows machine** — plain `npx wrangler deploy` fails (`ERR_RUNTIME_FAILURE`: workerd access violation when wrangler delegates to `opennextjs-cloudflare deploy`). Use the rename workaround in PowerShell: `Rename-Item open-next.config.ts open-next.config.ts.bak; npx wrangler deploy; Rename-Item open-next.config.ts.bak open-next.config.ts` (after `npm run cf:build`)
 
 ---
+
+## Killswitch (check this first when the dashboard looks dead)
+`middleware.ts` gates **every** `/api/*` route on the Next.js hosts. If
+`app_settings.killswitch = 'true'` in Supabase, all of them return **503** —
+including `/api/batch-update` — so NT8 data stops landing while the page itself
+still renders. It does NOT gate the Supabase Edge Function, so ingestion can
+survive on that path alone and mask the problem.
+
+- **Check** (no auth needed): `GET <host>/api/killswitch` → `{"killswitch":bool}`
+- **Clear**: red banner at the top of the dashboard → **Reset** (double-tap), or
+  `POST /api/killswitch/reset` with `Authorization: Bearer $KILLSWITCH_TOKEN`
+- Extra env vars this uses, beyond the table above: `KILLSWITCH_TOKEN`,
+  `API_SECRET_TOKEN`, `RESEND_API_KEY`, `ALERT_EMAIL`
 
 ## Known Issues / History
 - Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical
