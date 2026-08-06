@@ -69,11 +69,18 @@ async function upsertRow(
 }
 
 // ── Auto risk lockout (Task 5) ────────────────────────────────────────────────
-// Returns true if the account is locked and the update should be skipped.
+// Records the lock after 3 consecutive risk_breach readings. Returns true if the
+// account is locked.
+//
+// The lock deliberately does NOT suppress the data write. It used to return
+// early and skip the upsert entirely, which froze the account's row at its last
+// pre-lock values with no unlock route anywhere in the app — so a locked account
+// went blind permanently, hiding live equity at exactly the moment the numbers
+// matter most. Flagging an account and refusing to show its data are different
+// things; only the first one is wanted here.
 async function checkRiskLockout(
   supabase: ReturnType<typeof createServiceClient>,
   accountId: string,
-  row: AccountRow,
 ): Promise<boolean> {
   // Fetch last 3 events to count consecutive bad readings
   const { data: events } = await supabase
@@ -274,12 +281,11 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Check if account is auto-locked before processing
+  // Record an auto-lock if this account has tripped 3 consecutive breach
+  // readings, then carry on and apply the update regardless — see the note on
+  // checkRiskLockout. The flag is reported back so callers can still see it.
   const accountId = String(body.account)
-  const isLocked = await checkRiskLockout(supabase, accountId, await fetchRow(supabase, accountId))
-  if (isLocked) {
-    return NextResponse.json({ status: 'locked', reason: 'auto_risk_lockout' })
-  }
+  const isLocked = await checkRiskLockout(supabase, accountId)
 
   try {
     // Route to correct handler — same logic as main.py @app.post("/update")
@@ -299,6 +305,8 @@ export async function POST(req: NextRequest) {
         `dist_drawdown=${updatedRow.dist_drawdown} dist_daily=${updatedRow.dist_to_daily_loss}`
       )
     }
+
+    if (isLocked) result.headers.set('X-Account-Locked', 'true')
 
     return result
   } catch (err) {

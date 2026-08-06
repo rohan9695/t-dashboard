@@ -34,6 +34,25 @@ export const ITEM_MAP: Record<string, string> = {
   DailyPnL:                  'tradovate_daily_pnl',
 }
 
+// ── ITEM PRIORITY ───────────────────────────────────────────────────────────
+// Several NT8 items map to the same dashboard field but do NOT mean the same
+// thing. A single batch can carry more than one of them, and plain
+// last-key-wins iteration would let the weakest source overwrite the best one.
+//
+// total_available is meant to be account equity. NetLiquidation includes the
+// P&L of open positions; CashValue does not move at all while a position is
+// open. Letting CashValue land last pins equity to a flat number mid-trade,
+// and because dist_drawdown / dist_to_daily_loss are both derived from
+// total_available, the entire risk display freezes with it.
+//
+// Higher number wins. Items absent from this map are priority 0, so fields
+// with only one source keep their previous last-wins behaviour.
+export const ITEM_PRIORITY: Record<string, number> = {
+  NetLiquidation: 3,
+  TotalAvailable: 2,
+  CashValue:      1,
+}
+
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────
 // (min_balance, starting, trailing_max, daily_loss_limit, safety_net_floor)
 const ACCOUNT_SIZE_PROFILES: [number, number, number, number, number][] = [
