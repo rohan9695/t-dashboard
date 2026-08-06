@@ -162,7 +162,15 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 ---
 
 ## Apex Prop Firm Account Profiles
-The dashboard auto-detects account size and applies correct drawdown rules:
+**NT8 is the source of truth for risk numbers.** Any of `dist_drawdown`,
+`dist_to_daily_loss`, `drawdown_auto`, `trailing_max` that NT8 reports directly
+is stored and displayed exactly as sent — the dashboard must not disagree with
+the number on the trading screen. Ownership is tracked per field in
+`accounts.nt_fields`.
+
+The profile table below is a **fallback only**, applied to fields NT8 never
+sent, so an account whose addon reports just equity still gets a usable risk
+readout. It auto-detects account size from balance:
 
 | Size | Starting | Trailing Max | Daily Loss | Safety Floor |
 |---|---|---|---|---|
@@ -170,6 +178,12 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 | 100K | $100,000 | $3,000 | $1,200 | $100,100 |
 | 50K  | $50,000  | $2,000 | $1,000 | $50,100  |
 | 25K  | $25,000  | $1,000 | $500   | $25,100  |
+
+> Known trade-off: NT8 has been seen reporting `0` for these fields while equity
+> was clearly non-zero. Such a `0` now displays as a zero buffer and flags the
+> account `breached`. That is deliberate — a visible false alarm that clears on
+> the next update beats the previous behaviour, where a balance-guessed profile
+> could show a healthy buffer on an account that was actually in trouble.
 
 ---
 
