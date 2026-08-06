@@ -2,6 +2,7 @@
 .env
 node_modules/
 .next/
+next-env.d.ts
 out/
 *.db
 account_state.json
