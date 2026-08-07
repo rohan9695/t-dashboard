@@ -1,6 +1,6 @@
 'use client'
 // components/ToastProvider.tsx
-// Small pill toasts at bottom-center, stacked upward, auto-dismiss after 3s.
+// Small pill toasts at top-centre, newest on top, auto-dismiss after 3s.
 // Triggered by Supabase Realtime inserts on the trade_events table.
 // Deduplicates same event within 5 minutes.
 
@@ -132,17 +132,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{ push }}>
       {children}
 
-      {/* Toast stack — bottom-center, above iPhone home indicator */}
+      {/* Toast stack — top-centre, just below the Dynamic Island / notch */}
       {toasts.length > 0 && (
         <div
-          className="fixed toast-bottom left-1/2 -translate-x-1/2 z-50 flex flex-col-reverse items-center gap-2 pointer-events-none"
+          className="fixed toast-top left-1/2 -translate-x-1/2 z-50 flex flex-col-reverse items-center gap-2 pointer-events-none"
           role="status"
           aria-live="polite"
         >
           {toasts.map((t) => (
             <div
               key={t.id}
-              className="max-w-[200px] bg-zinc-800/90 backdrop-blur-sm border border-zinc-700/60 text-zinc-100 text-[13px] leading-tight font-medium px-4 py-2 rounded-full shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 whitespace-nowrap overflow-hidden text-ellipsis"
+              className="max-w-[200px] bg-zinc-800/90 backdrop-blur-sm border border-zinc-700/60 text-zinc-100 text-[13px] leading-tight font-medium px-4 py-2 rounded-full shadow-lg animate-in fade-in slide-in-from-top-2 duration-200 whitespace-nowrap overflow-hidden text-ellipsis"
             >
               {t.message}
             </div>
