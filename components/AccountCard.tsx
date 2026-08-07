@@ -45,6 +45,40 @@ export function secondsAgo(iso: string, now = Date.now()): { text: string; stale
 
 const DASH = '——'
 
+// Which limit an account has actually hit, in words.
+//
+// This replaces a bare red dot that had no legend anywhere in the UI — it read
+// as "something is wrong" without saying what, which is useless mid-session.
+// The status dot now means connection/freshness ONLY (green live, amber quiet,
+// grey offline); risk state is spelled out here instead of encoded in a colour.
+export function breachReason(row: AccountRow): string | null {
+  if (row.status !== 'breached') return null
+  // Drawdown first: busting the trailing threshold ends the account, whereas a
+  // daily-loss stop is usually just the day.
+  if ((row.dist_drawdown ?? 0) <= 0)      return 'Drawdown'
+  if ((row.dist_to_daily_loss ?? 0) <= 0) return 'Daily loss'
+  return 'Limit hit'
+}
+
+export function BreachTag({ row }: { row: AccountRow }) {
+  const reason = breachReason(row)
+  if (!reason) return null
+  return (
+    <span
+      title={
+        reason === 'Drawdown'
+          ? 'Equity has reached the trailing drawdown threshold'
+          : reason === 'Daily loss'
+            ? 'No daily loss allowance left for today'
+            : 'A risk limit has been reached'
+      }
+      className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-red-950/80 text-red-300 border border-red-800/60 whitespace-nowrap"
+    >
+      {reason}
+    </span>
+  )
+}
+
 function ReplikantoTag({ role }: { role?: 'leader' | 'follower' | null }) {
   if (!role) return null
   return role === 'leader' ? (
@@ -110,13 +144,16 @@ export function AccountRow({
     <tr className={`border-b border-zinc-800 transition-all duration-300 ${rowBg}`}>
       {show('status') && (
         <td className="px-3 py-3 w-8">
-          <span className={[
-            'inline-block w-2.5 h-2.5 rounded-full',
-            isBreached ? 'bg-red-500'
-              : offline  ? 'bg-zinc-600'
-              : isStale  ? 'bg-amber-400'
-              : 'bg-emerald-400',
-          ].join(' ')} />
+          {/* Connection state only — breach is named by the BreachTag below. */}
+          <span
+            title={offline ? 'Offline — no data for 30 min' : isStale ? 'No update in the last 10 min' : 'Live'}
+            className={[
+              'inline-block w-2.5 h-2.5 rounded-full',
+              offline  ? 'bg-zinc-600'
+                : isStale  ? 'bg-amber-400'
+                : 'bg-emerald-400',
+            ].join(' ')}
+          />
         </td>
       )}
 
@@ -135,7 +172,10 @@ export function AccountRow({
               <span title="NT8 only — Tradovate values missing" className="w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
             )}
           </div>
-          <ReplikantoTag role={row.replikanto_role} />
+          <div className="flex items-center gap-1 flex-wrap">
+            <ReplikantoTag role={row.replikanto_role} />
+            <BreachTag row={row} />
+          </div>
           {/* Apex Drawdown: show real Tradovate value if available */}
           {row.tradovate_trailing_drawdown != null && !offline && (
             <div className="flex items-center gap-1 mt-0.5">
@@ -276,21 +316,25 @@ export function MobileListRow({
 }) {
   const {
     account_id, dollar_open,
-    realized_pnl, unrealized_pnl, total_available, last_update, status,
+    realized_pnl, unrealized_pnl, total_available, last_update,
   } = row
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
-  const isBreached = status === 'breached'
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
 
-  const dotColor = isBreached ? 'bg-red-500'
-    : offline  ? 'bg-zinc-600'
-    : isAged   ? 'bg-amber-400'
+  // Connection state only — a breached account that is still reporting is live,
+  // and saying so is more useful than colouring the dot red. The breach itself
+  // is named in the BreachTag below.
+  const dotColor = offline ? 'bg-zinc-600'
+    : isAged ? 'bg-amber-400'
     : 'bg-emerald-400'
+  const dotTitle = offline ? 'Offline — no data for 30 min'
+    : isAged ? 'No update in the last 10 min'
+    : 'Live'
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/70 last:border-0">
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+      <span title={dotTitle} className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
 
       <div className="w-[90px] shrink-0 min-w-0">
         <div className="flex items-center gap-1">
@@ -299,9 +343,10 @@ export function MobileListRow({
         </div>
         {/* Only the leader gets a badge line — absence already implies follower,
             so skipping it for the other 9 rows saves a whole line each */}
-        {row.replikanto_role === 'leader' && (
-          <div className="flex items-center gap-1">
-            <ReplikantoTag role={row.replikanto_role} />
+        {(row.replikanto_role === 'leader' || breachReason(row)) && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {row.replikanto_role === 'leader' && <ReplikantoTag role={row.replikanto_role} />}
+            <BreachTag row={row} />
           </div>
         )}
       </div>
@@ -359,9 +404,10 @@ export function MobileAccountCard({
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
   const isStale = isAged
 
+  // Connection state only — the breach is named by the BreachTag in the header.
   const dotColor = offline
     ? 'bg-zinc-700'
-    : isBreached ? 'bg-red-500' : isStale ? 'bg-zinc-600' : 'bg-emerald-400'
+    : isStale ? 'bg-zinc-600' : 'bg-emerald-400'
 
   const cardBorder = isBreached ? 'border-red-800/50 bg-red-950/20' : 'border-zinc-800 bg-zinc-900'
 
@@ -374,6 +420,7 @@ export function MobileAccountCard({
           {isBest && !offline && <span className="shrink-0 text-sm">👑</span>}
           <span className="text-xs font-mono font-semibold text-zinc-100 truncate">{account_id}</span>
           <ReplikantoTag role={row.replikanto_role} />
+          <BreachTag row={row} />
         </div>
         <span className={`text-[10px] shrink-0 ml-2 ${offline ? 'text-zinc-600' : isAged ? 'text-amber-500' : 'text-zinc-600'}`}>
           {offline ? 'OFFLINE' : ageText}
