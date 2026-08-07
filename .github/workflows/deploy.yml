@@ -1,0 +1,113 @@
+name: Deploy
+
+# Deploys on every push to main, so `npm run deploy` from a laptop stops being
+# the only route to production. It will not run until the secrets below exist —
+# without them the job is skipped, not failed, so an unconfigured repo stays
+# green rather than nagging.
+#
+# Secrets to add once, in Settings -> Secrets and variables -> Actions:
+#
+#   CLOUDFLARE_API_TOKEN   Cloudflare -> My Profile -> API Tokens ->
+#                          "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare dashboard -> Workers -> Account ID
+#   SUPABASE_ACCESS_TOKEN  https://supabase.com/dashboard/account/tokens
+#
+# Everything the app reads at RUNTIME (SUPABASE_SERVICE_ROLE_KEY, API_KEY,
+# NTFY_TOPIC) stays configured in the Cloudflare and Supabase dashboards. Those
+# are deliberately NOT secrets here — this workflow ships code, not config.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never let two deploys race; a later push supersedes one already running.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Check which deploy targets are configured
+        id: cfg
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SB_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+            echo "cloudflare=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cloudflare=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cloudflare secrets not set — skipping that deploy."
+          fi
+          if [ -n "$SB_TOKEN" ]; then
+            echo "supabase=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supabase=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SUPABASE_ACCESS_TOKEN not set — skipping edge functions."
+          fi
+
+      # Gate the deploy on the tests actually passing. Shipping a broken build
+      # automatically would be worse than shipping nothing.
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Full suite
+        run: npm test
+
+      # ── Cloudflare Workers (dashboard + ingestion) ──────────────────────────
+      - name: Build for Cloudflare
+        if: steps.cfg.outputs.cloudflare == 'true'
+        run: npm run cf:build
+
+      - name: Deploy to Cloudflare
+        if: steps.cfg.outputs.cloudflare == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # The open-next.config.ts rename that scripts/deploy.ps1 needs is a
+        # workaround for a workerd crash on one Windows machine; it is not
+        # needed here, so wrangler is invoked directly.
+        run: npx wrangler deploy
+
+      # ── Supabase Edge Functions (second ingestion path) ─────────────────────
+      # sync-accounts and keep-warm go out with batch-update: they share
+      # _shared/trading-logic.ts, and deploying one without the others is how
+      # the two ingestion paths drift apart.
+      - name: Deploy Supabase Edge Functions
+        if: steps.cfg.outputs.supabase == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          for fn in batch-update sync-accounts keep-warm; do
+            npx supabase functions deploy "$fn" \
+              --no-verify-jwt \
+              --project-ref gvbtnsktudmgmpamkhnl
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deploy"
+            echo ""
+            echo "| Target | Status |"
+            echo "|---|---|"
+            echo "| Cloudflare Workers | ${{ steps.cfg.outputs.cloudflare == 'true' && 'deployed' || 'skipped (no secrets)' }} |"
+            echo "| Supabase Edge Functions | ${{ steps.cfg.outputs.supabase == 'true' && 'deployed' || 'skipped (no secrets)' }} |"
+            echo "| Netlify | deploys itself from main via its GitHub link |"
+          } >> "$GITHUB_STEP_SUMMARY"
