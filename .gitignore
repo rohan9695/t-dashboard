@@ -3,6 +3,7 @@
 node_modules/
 .next/
 next-env.d.ts
+*.tsbuildinfo
 out/
 *.db
 account_state.json
