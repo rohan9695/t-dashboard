@@ -5,6 +5,7 @@ import { useRealtime } from './RealtimeProvider'
 import { AccountRow, MobileAccountCard, MobileListRow } from './AccountCard'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
+import { RefreshButton } from './RefreshButton'
 
 const OFFLINE_THRESHOLD_MS = 30 * 60_000 // 30 min — between trades NT8 sends nothing
 
@@ -154,7 +155,13 @@ export function AccountsGrid() {
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
         <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center text-2xl">📡</div>
         <p className="text-zinc-400 text-sm">No accounts connected</p>
-        <p className="text-zinc-600 text-xs max-w-xs">Enable AccountMonitor in NinjaTrader and point it at your Vercel URL</p>
+        <p className="text-zinc-600 text-xs max-w-xs">
+          Check that AccountMonitor is enabled in NinjaTrader and pointed at the
+          batch-update endpoint.
+        </p>
+        {/* An empty list is exactly when a manual retry is wanted, so the button
+            has to exist on this branch too — it returns before the toolbar. */}
+        <RefreshButton showAge={false} />
       </div>
     )
   }
@@ -171,8 +178,9 @@ export function AccountsGrid() {
     <>
       {/* ── Mobile: view mode toggle + content ───────────────── */}
       <div className="md:hidden">
-        {/* Toggle button — top right */}
-        <div className="flex justify-end mb-2">
+        {/* Refresh + view toggle */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <RefreshButton />
           <button
             onClick={toggleViewMode}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-[11px] font-medium active:bg-zinc-700 transition-colors"
@@ -229,6 +237,9 @@ export function AccountsGrid() {
       </div>
 
       {/* ── Desktop: scrollable table ─────────────────────────── */}
+      <div className="hidden md:flex justify-end mb-2">
+        <RefreshButton />
+      </div>
       <div className="hidden md:block overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full text-left border-collapse">
           {tableHeader}
