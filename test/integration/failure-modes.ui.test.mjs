@@ -11,7 +11,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
-import { findBrowser, openDashboard } from '../browser.mjs'
+import { findBrowser, openDashboard, until, waitForAccounts } from '../browser.mjs'
 import { account, resetAll, seed, postJson, notifications, APP } from '../helpers.mjs'
 
 const SECRET = process.env.TEST_JWT_SECRET ?? 'test-service-key'
@@ -27,7 +27,7 @@ const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString()
 async function open(opts = {}) {
   const r = await openDashboard(browser, { appUrl: APP, secret: SECRET, ...opts })
   await r.page.goto(APP, { waitUntil: 'domcontentloaded' })
-  await r.page.waitForTimeout(2_500)
+  await waitForAccounts(r.page)
   return r
 }
 
@@ -55,15 +55,16 @@ describe('NT8 not firing', { skip }, () => {
   test('quiet accounts are not presented as live', async () => {
     await seedDesk({ lastUpdate: minsAgo(15) })
     const { context, page } = await open({ viewMode: 'list' })
+    await until('amber dot', async () => (await page.locator('span.bg-amber-400').count()) > 0)
     assert.equal(await page.locator('span.bg-emerald-400').count(), 0, 'nothing claims to be live')
-    assert.ok(await page.locator('span.bg-amber-400').count() > 0)
     await context.close()
   })
 
   test('a dead NT8 raises the offline banner and keeps the last figures', async () => {
     await seedDesk({ lastUpdate: minsAgo(45) })
     const { context, page } = await open({ viewMode: 'list' })
-    await page.waitForTimeout(1_500)
+    await until('NinjaTrader offline banner',
+      async () => /NinjaTrader offline/i.test(await page.locator('body').innerText()))
     const text = await page.locator('body').innerText()
     assert.match(text, /NinjaTrader offline/i)
     assert.match(text, /\$50,088\.64/, 'last known figures retained')
@@ -77,7 +78,9 @@ describe('NT8 firing but Replikanto not copying', { skip }, () => {
     // measured from when the dashboard first sees it — so let it sit.
     await seedDesk({ leaderOpen: 425.50, followerOpen: 0 })
     const { context, page } = await open()
-    await page.waitForTimeout(48_000) // GRACE_MS is 45s
+    await until('copier banner past the 45s grace period',
+      async () => /Replikanto not copying/i.test(await page.locator('body').innerText()),
+      { timeout: 90_000 })
 
     const text = await page.locator('body').innerText()
     assert.match(text, /Replikanto not copying/i)
@@ -88,7 +91,7 @@ describe('NT8 firing but Replikanto not copying', { skip }, () => {
   test('no banner when the copier worked', async () => {
     await seedDesk({ leaderOpen: 425.50, followerOpen: 418.25 })
     const { context, page } = await open()
-    await page.waitForTimeout(48_000)
+    await page.waitForTimeout(50_000) // must outlast GRACE_MS to prove absence
     assert.doesNotMatch(await page.locator('body').innerText(), /Replikanto not copying/i)
     await context.close()
   })
@@ -104,7 +107,7 @@ describe('NT8 firing but Replikanto not copying', { skip }, () => {
   test('offline followers are not counted as failures to copy', async () => {
     await seedDesk({ leaderOpen: 425.50, followerOpen: 0, followerOverrides: { last_update: minsAgo(45) } })
     const { context, page } = await open()
-    await page.waitForTimeout(48_000)
+    await page.waitForTimeout(50_000) // must outlast GRACE_MS to prove absence
     assert.doesNotMatch(
       await page.locator('body').innerText(), /Replikanto not copying/i,
       'an offline account was never going to fill',
@@ -135,7 +138,8 @@ describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
     }))
 
     const { context, page } = await open({ viewMode: 'list' })
-    await page.waitForTimeout(2_000)
+    await until('readiness warning',
+      async () => /not reporting/i.test(await page.locator('body').innerText()))
     const text = await page.locator('body').innerText()
 
     assert.match(text, /not reporting/i, 'warns with no trade in flight')
@@ -168,7 +172,9 @@ describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
       replikanto_role: 'follower', dollar_open: 0, last_update: minsAgo(10),
     }))
     const { context, page } = await open()
-    await page.waitForTimeout(48_000)
+    await until('copier banner takes precedence',
+      async () => /not copying/i.test(await page.locator('body').innerText()),
+      { timeout: 90_000 })
     const text = await page.locator('body').innerText()
     assert.match(text, /not copying/i, 'the worse problem is the one shown')
     assert.doesNotMatch(text, /not reporting/i, 'only one banner at a time')
@@ -182,7 +188,7 @@ describe('dashboard claiming to be online when it is not', { skip }, () => {
     // dashboard must not read as live just because the request succeeded.
     await seedDesk({ lastUpdate: minsAgo(45) })
     const { context, page } = await open({ viewMode: 'list' })
-    await page.waitForTimeout(1_500)
+    await until('offline banner', async () => /NinjaTrader offline/i.test(await page.locator('body').innerText()))
     const text = await page.locator('body').innerText()
 
     assert.equal(await page.locator('span.bg-emerald-400').count(), 0, 'no live dots')
@@ -208,7 +214,8 @@ describe('the host is down (Cloudflare / Netlify)', { skip }, () => {
     await context.route('**/api/data**', (r) => r.abort())
     await context.route('**/rest/v1/**', (r) => r.abort())
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(12_000)
+    await until('degraded banner', async () => /saved data|not updating/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
 
     let text = await page.locator('body').innerText()
     assert.match(text, /\$50,088\.64/, 'figures still on screen')
@@ -216,7 +223,9 @@ describe('the host is down (Cloudflare / Netlify)', { skip }, () => {
 
     await context.unroute('**/api/data**')
     await context.unroute('**/rest/v1/**')
-    await page.waitForTimeout(7_000)
+    await until('banner clears once the host returns',
+      async () => !/saved data|not updating/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
     text = await page.locator('body').innerText()
     assert.doesNotMatch(text, /saved data|not updating/i, 'clears itself once the host returns')
     await context.close()

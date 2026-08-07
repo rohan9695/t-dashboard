@@ -8,7 +8,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
-import { findBrowser, openDashboard } from '../browser.mjs'
+import { findBrowser, openDashboard, until, waitForAccounts } from '../browser.mjs'
 import { account, resetAll, seed, APP, DB } from '../helpers.mjs'
 
 const SECRET = process.env.TEST_JWT_SECRET ?? 'test-service-key'
@@ -29,8 +29,7 @@ const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString()
 async function open(opts = {}) {
   const { context, page, consoleErrors } = await openDashboard(browser, { appUrl: APP, secret: SECRET, ...opts })
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
-  // Give the client fetch + first poll a chance to land.
-  await page.waitForTimeout(2_500)
+  await waitForAccounts(page)
   return { context, page, consoleErrors }
 }
 
@@ -70,7 +69,8 @@ describe('dashboard on a phone', { skip }, () => {
     const { context, page } = await open({ viewMode: 'list' })
     const text = await page.locator('body').innerText()
     assert.match(text, /APEX0000/)
-    assert.match(text, /APEX0019/, 'the twentieth account is present in the DOM')
+    await until('all 20 accounts rendered',
+      async () => /APEX0019/.test(await page.locator('body').innerText()))
     // The page must not scroll sideways on a phone.
     const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)
     assert.equal(overflows, false, 'no horizontal scroll at phone width')
@@ -95,7 +95,8 @@ describe('when NT8 stops sending', { skip }, () => {
     await seedFive({ last_update: minsAgo(15) })
     const { context, page } = await open({ viewMode: 'list' })
 
-    assert.ok(await page.locator('span.bg-amber-400').count() > 0, 'amber dot for a quiet account')
+    await until('amber dot for a quiet account',
+      async () => (await page.locator('span.bg-amber-400').count()) > 0)
     assert.equal(await page.locator('span.bg-emerald-400').count(), 0, 'not shown as live')
     await context.close()
   })
@@ -105,7 +106,8 @@ describe('when NT8 stops sending', { skip }, () => {
     const { context, page } = await open({ viewMode: 'list' })
     const text = await page.locator('body').innerText()
 
-    assert.ok(await page.locator('span.bg-zinc-600').count() > 0, 'grey dot marks it offline')
+    await until('grey dot marks it offline',
+      async () => (await page.locator('span.bg-zinc-600').count()) > 0)
     assert.equal(await page.locator('span.bg-emerald-400').count(), 0, 'not shown as live')
     assert.match(text, /\$50,088\.64/, 'last known figures still displayed, not blanked')
     await context.close()
@@ -114,14 +116,15 @@ describe('when NT8 stops sending', { skip }, () => {
   test('card view spells OFFLINE out in words', async () => {
     await seedFive({ last_update: minsAgo(45) })
     const { context, page } = await open({ viewMode: 'card' })
-    assert.match(await page.locator('body').innerText(), /OFFLINE/)
+    await until('OFFLINE label', async () => /OFFLINE/.test(await page.locator('body').innerText()))
     await context.close()
   })
 
   test('NT8 down across every account raises the NinjaTrader banner', async () => {
     await seedFive({ last_update: minsAgo(45) })
     const { context, page } = await open()
-    await page.waitForTimeout(1_500)
+    await until('NinjaTrader offline banner',
+      async () => /NinjaTrader offline/i.test(await page.locator('body').innerText()))
     const text = await page.locator('body').innerText()
 
     assert.match(text, /NinjaTrader offline/i)
@@ -140,7 +143,9 @@ describe('when the backend is unreachable', { skip }, () => {
     await context.route('**/api/data**', (r) => r.abort())
     await context.route('**/rest/v1/**', (r) => r.abort())
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(12_000) // 3 failed polls at 3s, plus slack
+    await until('degraded banner after 3 failed polls',
+      async () => /saved data|not updating/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
 
     const text = await page.locator('body').innerText()
     assert.match(text, /PAAPEX3480290000007/, 'accounts still rendered from cache')
@@ -155,7 +160,9 @@ describe('when the backend is unreachable', { skip }, () => {
     await context.route('**/api/data**', (r) => r.abort())
     await context.route('**/rest/v1/**', (r) => r.abort())
     await page.goto(APP, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(12_000)
+    await until('a real state rather than a blank page',
+      async () => /No accounts connected|not updating|saved data/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
 
     const text = await page.locator('body').innerText()
     assert.match(text, /No accounts connected|not updating|saved data/i, 'shows a real state, not a blank page')
@@ -172,12 +179,14 @@ describe('when the backend is unreachable', { skip }, () => {
     await context.route('**/api/data**', (r) => r.abort())
     await context.route('**/rest/v1/**', (r) => r.abort())
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(12_000)
-    assert.match(await page.locator('body').innerText(), /saved data|not updating/i)
+    await until('degraded banner', async () => /saved data|not updating/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
 
     await context.unroute('**/api/data**')
     await context.unroute('**/rest/v1/**')
-    await page.waitForTimeout(6_000) // a couple of 3s poll cycles
+    await until('degraded banner clears by itself',
+      async () => !/saved data|not updating/i.test(await page.locator('body').innerText()),
+      { timeout: 30_000 })
 
     const text = await page.locator('body').innerText()
     assert.doesNotMatch(text, /saved data|not updating/i, 'degraded banner clears by itself')
@@ -194,9 +203,8 @@ describe('manual refresh', { skip }, () => {
 
     await seed(account('APEXLATE', 51234.56))
     await page.getByRole('button', { name: /refresh data/i }).first().click()
-    await page.waitForTimeout(3_000)
-
-    assert.match(await page.locator('body').innerText(), /APEXLATE/, 'new account appears after a manual refresh')
+    await until('new account appears after a manual refresh',
+      async () => /APEXLATE/.test(await page.locator('body').innerText()))
     await context.close()
   })
 })
