@@ -6,10 +6,14 @@
 //   supabase functions deploy keep-warm
 //
 // Secrets (set via: supabase secrets set KEY=value):
-//   VERCEL_DASHBOARD_URL  - e.g. https://t-dashboard-pi.vercel.app
-//   API_SECRET_TOKEN      - Bearer token sent with ping (same as Vercel env)
+//   DASHBOARD_URL         - host to ping, defaults to the Cloudflare worker
+//   API_SECRET_TOKEN      - Bearer token sent with ping (same as the host env)
 //   ALERT_EMAIL           - email address for failure alerts
 //   RESEND_API_KEY        - Resend API key for sending email
+//
+// VERCEL_DASHBOARD_URL is still read as a fallback so an existing secret keeps
+// working, but Vercel is no longer part of the setup (account disabled, 402).
+// With neither secret set this used to 500 and ping nothing at all.
 //
 // Cron schedule (Supabase dashboard → Integrations → Cron):
 //   */5 14-18 * * 1-5
@@ -19,7 +23,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const SUPABASE_URL             = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const VERCEL_URL               = Deno.env.get('VERCEL_DASHBOARD_URL') ?? ''
+const VERCEL_URL               = Deno.env.get('DASHBOARD_URL')
+  ?? Deno.env.get('VERCEL_DASHBOARD_URL')
+  ?? 'https://t-dashboard.rohan9695.workers.dev'
 const API_SECRET_TOKEN         = Deno.env.get('API_SECRET_TOKEN') ?? ''
 const ALERT_EMAIL              = Deno.env.get('ALERT_EMAIL') ?? ''
 const RESEND_API_KEY           = Deno.env.get('RESEND_API_KEY') ?? ''
