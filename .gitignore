@@ -16,3 +16,6 @@ account_state.json
 
 # Supabase CLI local state
 supabase/.temp/
+
+# Playwright browsers if ever installed locally
+test-results/

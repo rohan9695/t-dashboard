@@ -1,0 +1,111 @@
+// test/integration/batch-update.test.mjs
+// Drives the real /api/batch-update route against the mock database.
+
+import { test, describe, beforeEach } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  account, resetAll, seed, storedAccounts, postJson,
+  resetQueries, queryCount, failUpsertFor,
+} from '../helpers.mjs'
+
+const FIVE = ['PAAPEX3480290000007', 'APEX3480290000089', 'APEX3480290000090', 'APEX3480290000091', 'APEX3480290000092']
+
+beforeEach(resetAll)
+
+describe('/api/batch-update', () => {
+  test('CashValue cannot freeze equity while a position is open', async () => {
+    await seed(account('APEX1', 50000))
+    // Both arrive in one batch, CashValue last. Pre-fix this stored 50000 and
+    // the dashboard showed a full drawdown buffer on a losing account.
+    const res = await postJson('/api/batch-update', { APEX1: { NetLiquidation: 49247.14, CashValue: 50000 }, _ts: 2000 })
+    assert.equal(res.status, 200)
+
+    const [row] = await storedAccounts()
+    assert.equal(row.total_available, 49247.14)
+    assert.equal(Math.round(row.dist_drawdown * 100) / 100, 1247.14, 'risk buffer reflects real equity')
+  })
+
+  test('open P&L reaches the dashboard fields', async () => {
+    await seed(account('APEX1', 50000))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50312.5, UnrealizedProfitLoss: 312.5 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.unrealized_pnl, 312.5)
+    assert.equal(row.dollar_open, 312.5)
+  })
+
+  test('an older batch never clobbers newer stored data', async () => {
+    await seed(account('APEX1', 50000, { last_batch_ts: 9000 }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 99999 }, _ts: 8000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.total_available, 50000)
+  })
+
+  test('a live account is always un-hidden (incident 2026-07-14)', async () => {
+    await seed(account('APEX1', 50000, { hidden: true }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50750.25 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.hidden, false)
+  })
+
+  test('sim accounts are ignored', async () => {
+    await seed(account('APEXREAL', 50000))
+    await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })
+    const rows = await storedAccounts()
+    assert.equal(rows.some((r) => r.account_id === 'Sim101'), false)
+  })
+
+  test('a wrong API key is rejected', async () => {
+    const res = await postJson('/api/batch-update', { APEX1: { NetLiquidation: 1 } }, 'wrong-key')
+    assert.equal(res.status, 401)
+  })
+
+  test('a failed write is reported, not silently swallowed', async () => {
+    await seed(account('APEX1', 50000))
+    await failUpsertFor('APEX1')
+    const res = await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50750 }, _ts: 2000 })
+    assert.equal(res.status, 500)
+    assert.equal((await res.json()).status, 'partial')
+  })
+})
+
+describe('/api/batch-update — cost does not grow with account count', () => {
+  for (const n of [1, 5, 20, 50]) {
+    test(`${n} accounts costs exactly 2 queries`, async () => {
+      await resetAll()
+      const payload = { _ts: 2000 }
+      for (let i = 0; i < n; i++) {
+        const id = `APEX${String(i).padStart(4, '0')}`
+        await seed(account(id, 50000))
+        payload[id] = { NetLiquidation: 50000 + i, CashValue: 49000 }
+      }
+      await resetQueries()
+
+      const res = await postJson('/api/batch-update', payload)
+      assert.equal((await res.json()).processed, n)
+      assert.equal(await queryCount(), 2, 'one read + one write, whatever the account count')
+      assert.equal((await storedAccounts()).length, n)
+    })
+  }
+
+  test('correctness holds at 20 accounts', async () => {
+    const payload = { _ts: 2000 }
+    for (let i = 0; i < 20; i++) {
+      const id = `APEX${String(i).padStart(4, '0')}`
+      await seed(account(id, 50000))
+      payload[id] = { NetLiquidation: 50000 + i, CashValue: 49000 }
+    }
+    await postJson('/api/batch-update', payload)
+    const rows = await storedAccounts()
+    assert.equal(rows.find((r) => r.account_id === 'APEX0000').total_available, 50000)
+    assert.equal(rows.find((r) => r.account_id === 'APEX0019').total_available, 50019)
+  })
+
+  test('the staleness guard still applies per account inside a bulk write', async () => {
+    await seed(account('APEXFRESH', 50000, { last_batch_ts: 9000 }))
+    await seed(account('APEXOLD', 50000, { last_batch_ts: 1000 }))
+    await postJson('/api/batch-update', { APEXFRESH: { NetLiquidation: 99999 }, APEXOLD: { NetLiquidation: 51111 }, _ts: 5000 })
+    const rows = await storedAccounts()
+    assert.equal(rows.find((r) => r.account_id === 'APEXFRESH').total_available, 50000)
+    assert.equal(rows.find((r) => r.account_id === 'APEXOLD').total_available, 51111)
+  })
+})

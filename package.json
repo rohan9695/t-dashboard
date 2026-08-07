@@ -10,7 +10,11 @@
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "npm run cf:build && wrangler dev",
     "cf:deploy": "npm run cf:build && wrangler deploy",
-    "deploy": "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1"
+    "deploy": "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1",
+    "test": "node test/run.mjs",
+    "test:unit": "node --test \"test/unit/*.test.mjs\"",
+    "test:quick": "node test/run.mjs --skip-build",
+    "sandbox": "node test/run.mjs --sandbox"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^9.0.1",
