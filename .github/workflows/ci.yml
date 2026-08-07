@@ -1,0 +1,46 @@
+name: CI
+
+# Runs on every push and PR. Needs NO secrets — the suite runs entirely against
+# the mock Supabase and mock ntfy in test/mocks, so nothing here can touch the
+# real database, Cloudflare, or a phone.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Fast feedback first: pure logic, no server, no browser. If ITEM_PRIORITY
+      # or the risk maths regress, this fails in seconds rather than minutes.
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true # lint findings should not block a green build
+
+      # The runner ships Chrome, so playwright-core drives it with no download.
+      - name: Full suite (integration + browser)
+        run: npm test
+
+      - name: Cloudflare bundle builds
+        run: npm run cf:build
