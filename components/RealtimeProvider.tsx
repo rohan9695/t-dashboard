@@ -21,6 +21,10 @@ interface RealtimeCtx {
   lastUpdate: Date | null
   loading: boolean
   refresh: () => Promise<void>
+  /** When the browser last actually pulled rows. Null until the first success. */
+  lastSync: Date | null
+  /** True once reads have been failing long enough that what's shown may be stale. */
+  syncFailed: boolean
 }
 
 const Ctx = createContext<RealtimeCtx>({
@@ -29,6 +33,8 @@ const Ctx = createContext<RealtimeCtx>({
   lastUpdate: null,
   loading: true,
   refresh: async () => {},
+  lastSync: null,
+  syncFailed: false,
 })
 
 export function useRealtime() {
@@ -48,9 +54,72 @@ export function RealtimeProvider({
   // Only show loading skeleton if we have no initial data
   const [loading, setLoading] = useState(initialAccounts.length === 0)
 
+  const [lastSync, setLastSync] = useState<Date | null>(null)
+  const [syncFailed, setSyncFailed] = useState(false)
+
   // Stable supabase client — never recreated across renders
   const supabaseRef = useRef(createClient())
   const channelRef = useRef<ReturnType<typeof supabaseRef.current.channel> | null>(null)
+  const failStreak = useRef(0)
+
+  // Single source of truth for pulling rows.
+  //
+  // The browser reads with the anon key, and RLS on `accounts` grants SELECT to
+  // the authenticated role only. A denied SELECT under RLS comes back as an
+  // EMPTY ARRAY, not an error — so a read that returns nothing is
+  // indistinguishable from "there are no accounts", and the old code discarded
+  // it silently and kept showing whatever the server render produced. That
+  // freezes the dashboard at page-load state with no visible symptom, which is
+  // the worst possible failure for a risk display.
+  //
+  // So: try the cheap direct read first, and if it yields nothing, fall back to
+  // /api/data, which runs server-side under the service role and is unaffected
+  // by RLS. Returns null only when BOTH paths fail.
+  const fetchAccounts = useCallback(async (): Promise<AccountRow[] | null> => {
+    try {
+      const { data, error } = await supabaseRef.current
+        .from('accounts')
+        .select('*')
+        .order('account_id')
+      if (!error && data && data.length > 0) return data as AccountRow[]
+      if (error) console.warn('[sync] direct read failed:', error.message)
+    } catch (e) {
+      console.warn('[sync] direct read threw:', e)
+    }
+
+    try {
+      // Same row set as the direct read — all=1 skips the staleness cutoff so
+      // offline accounts still render greyed instead of vanishing.
+      const res = await fetch('/api/data?all=1', { cache: 'no-store' })
+      if (!res.ok) {
+        console.warn('[sync] /api/data returned', res.status)
+        return null
+      }
+      const json = (await res.json()) as Record<string, AccountRow>
+      return Object.values(json)
+    } catch (e) {
+      console.warn('[sync] /api/data threw:', e)
+      return null
+    }
+  }, [])
+
+  // Apply a fetch result and keep the sync-health flags honest.
+  const applyRows = useCallback((rows: AccountRow[] | null) => {
+    if (rows === null) {
+      failStreak.current += 1
+      // Three consecutive misses (~9s) before crying wolf, so a single blip
+      // doesn't flash a warning at someone watching a live position.
+      if (failStreak.current >= 3) setSyncFailed(true)
+      return false
+    }
+    failStreak.current = 0
+    setSyncFailed(false)
+    setAccounts(rows)
+    setLastSync(new Date())
+    setLastUpdate(new Date())
+    setLoading(false)
+    return true
+  }, [])
 
   const subscribe = useCallback(() => {
     const supabase = supabaseRef.current
@@ -98,23 +167,13 @@ export function RealtimeProvider({
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const { data } = await supabaseRef.current
-        .from('accounts')
-        .select('*')
-        .order('account_id')
-
-      if (data) {
-        setAccounts(data as AccountRow[])
-        setLastUpdate(new Date())
-      }
-    } catch {
-      // Keep existing data on error; let realtime re-sync
+      applyRows(await fetchAccounts())
     } finally {
       setLoading(false)
       // Always re-establish a fresh realtime channel after fetch
       subscribe()
     }
-  }, [subscribe])
+  }, [subscribe, fetchAccounts, applyRows])
 
   // Initial subscription + immediate data fetch on mount
   // The server-side render may return empty (service key missing) — this ensures
@@ -123,17 +182,7 @@ export function RealtimeProvider({
     subscribe()
 
     void (async () => {
-      try {
-        const { data } = await supabaseRef.current
-          .from('accounts')
-          .select('*')
-          .order('account_id')
-        if (data && data.length > 0) {
-          setAccounts(data as AccountRow[])
-          setLastUpdate(new Date())
-          setLoading(false)
-        }
-      } catch { /* ignore */ }
+      applyRows(await fetchAccounts())
     })()
 
     return () => {
@@ -147,23 +196,10 @@ export function RealtimeProvider({
   useEffect(() => {
     const id = setInterval(async () => {
       if (document.hidden) return
-      try {
-        const { data, error } = await supabaseRef.current
-          .from('accounts')
-          .select('*')
-          .order('account_id')
-        if (error) console.warn('[poll] supabase error', error.message)
-        if (data && data.length > 0) {
-          setAccounts(data as AccountRow[])
-          setLastUpdate(new Date())
-          setLoading(false)
-        }
-      } catch (e) {
-        console.warn('[poll] fetch failed', e)
-      }
+      applyRows(await fetchAccounts())
     }, 3_000)
     return () => clearInterval(id)
-  }, [])
+  }, [fetchAccounts, applyRows])
 
   // Force refresh when app returns to foreground
   useEffect(() => {
@@ -183,7 +219,7 @@ export function RealtimeProvider({
   }, [refresh])
 
   return (
-    <Ctx.Provider value={{ accounts, connected, lastUpdate, loading, refresh }}>
+    <Ctx.Provider value={{ accounts, connected, lastUpdate, loading, refresh, lastSync, syncFailed }}>
       {children}
     </Ctx.Provider>
   )

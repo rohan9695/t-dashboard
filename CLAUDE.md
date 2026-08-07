@@ -148,8 +148,18 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 | `status` | text | 'active', 'stale', or 'breached' |
 
 ### RLS Policies
-- `anon` role: SELECT on accounts and alerts (dashboard read access)
-- `service_role`: bypasses RLS (used by /api/update)
+- `accounts` / `alerts`: SELECT granted to the **`authenticated`** role only.
+  The browser client uses the **anon** key, so its direct reads of `accounts`
+  are denied — and under RLS a denied SELECT returns an **empty array, not an
+  error**, which is silently indistinguishable from "no accounts exist".
+  `RealtimeProvider` therefore falls back to `/api/data?all=1` (service role,
+  gated by middleware + `td_session` cookie) whenever a direct read comes back
+  empty. Realtime events are subject to the same RLS, so the 3s poll — not the
+  WebSocket — is what actually keeps the dashboard live.
+  > Do **not** "fix" this by granting `anon` SELECT on `accounts`: the anon key
+  > is hardcoded in `lib/supabase/client.ts` and ships in the JS bundle, so that
+  > would publish every account balance to anyone who opens the page source.
+- `service_role`: bypasses RLS (used by the server-side API routes)
 
 ---
 

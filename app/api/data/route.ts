@@ -15,13 +15,21 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createServiceClient()
+
+  // ?all=1 returns every account, skipping the staleness cutoff. The dashboard
+  // uses it as a fallback data source and needs the same set of rows it would
+  // get from Supabase directly — with the cutoff applied, an account NT8 has
+  // gone quiet on would drop out of the list entirely instead of showing as
+  // offline.
+  const includeAll = req.nextUrl.searchParams.get('all') === '1'
   const cutoff = new Date(Date.now() - ACCOUNT_TIMEOUT_SECONDS * 1000).toISOString()
 
-  const { data, error } = await supabase
-    .from('accounts')
-    .select('*')
-    .gte('last_update', cutoff)  // mirrors cleanup_accounts()
-    .order('account_id')
+  let query = supabase.from('accounts').select('*')
+  if (!includeAll) {
+    query = query.gte('last_update', cutoff)  // mirrors cleanup_accounts()
+  }
+
+  const { data, error } = await query.order('account_id')
 
   if (error) {
     return NextResponse.json({ detail: error.message }, { status: 500 })
