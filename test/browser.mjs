@@ -51,6 +51,42 @@ export async function signSession(secret, ttlSeconds = 86_400) {
   return `${data}.${b64url(new Uint8Array(sig))}`
 }
 
+/**
+ * Polls until `check()` is truthy, or throws with `label`.
+ *
+ * Fixed sleeps are why the browser suite passed locally and failed on CI: a
+ * slower runner simply had not finished rendering when the assertion ran. Wait
+ * for the condition, not for the clock.
+ */
+export async function until(label, check, { timeout = 20_000, interval = 250 } = {}) {
+  const deadline = Date.now() + timeout
+  let last
+  while (Date.now() < deadline) {
+    try {
+      last = await check()
+      if (last) return last
+    } catch (e) {
+      last = e
+    }
+    await new Promise((r) => setTimeout(r, interval))
+  }
+  throw new Error(`timed out after ${timeout}ms waiting for: ${label}`)
+}
+
+/** Waits until the dashboard has painted real account rows. */
+export async function waitForAccounts(page, { timeout = 25_000 } = {}) {
+  return until(
+    'account rows to render',
+    async () => {
+      const text = await page.locator('body').innerText()
+      // Any account id, or an explicit "nothing to show" state — both mean the
+      // first load has resolved and it is safe to assert.
+      return /APEX|PAAPEX/.test(text) || /No accounts connected/.test(text)
+    },
+    { timeout },
+  )
+}
+
 /** An iPhone-sized page with the gate already satisfied. */
 export async function openDashboard(browser, { appUrl, secret, viewMode = 'card' } = {}) {
   const token = await signSession(secret)
