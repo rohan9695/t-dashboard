@@ -62,17 +62,24 @@ app/
   page.tsx               — Server component, fetches initial accounts, renders dashboard
   layout.tsx             — Root layout, PWA meta tags
   globals.css            — Tailwind base styles
+  error.tsx              — Route error boundary (never leave a blank page)
+  global-error.tsx       — Root error boundary
   api/
-    update/route.ts      — POST endpoint, receives NT8 data, upserts to Supabase
-    data/route.ts        — GET endpoint, returns all accounts as JSON
+    batch-update/route.ts— POST endpoint, receives NT8 batches, upserts to Supabase
+    data/route.ts        — GET endpoint, returns all accounts as JSON (?all=1 skips cutoff)
+    sync-accounts/route.ts— POST live account list, soft-hides accounts NT8 dropped
+    heartbeat/route.ts   — keep-warm ping target
     debug/items/route.ts — GET endpoint, returns ITEM_MAP for debugging
+    auth/*               — WebAuthn (Face ID) registration and login
 
 components/
   RealtimeProvider.tsx   — Supabase Realtime WebSocket subscription, React context
   AccountsGrid.tsx       — Table of all accounts
   AccountCard.tsx        — Single account row in the table (also exports AccountRow)
   SummaryBar.tsx         — Total accounts / balance / profit summary cards
-  StatusBar.tsx          — Header with connection status and clock
+  SyncBanner.tsx         — "saved data" / "not updating" degraded-mode banner
+  HeartbeatMonitor.tsx   — "NT8 offline" banner (separate cause from SyncBanner)
+  RefreshButton.tsx      — Manual re-pull + realtime resubscribe
 
 lib/
   trading-logic.ts       — Core business logic (ported from main.py):
@@ -95,7 +102,7 @@ public/
 
 ## Data Flow
 
-### NT8 → Vercel (`/api/update`)
+### NT8 → `/api/batch-update`
 The NT8 addon sends one of three payload shapes:
 
 1. **ItemUpdate** — single field update:
@@ -205,7 +212,7 @@ readout. It auto-detects account size from balance:
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP. Also: `supabase/functions/_shared/trading-logic.ts` is a mirror copy of `lib/trading-logic.ts` for the Deno edge functions — any change to the lib file must be copied there and the `batch-update`/`sync-accounts` edge functions re-deployed (`npx supabase functions deploy <name> --no-verify-jwt --project-ref gvbtnsktudmgmpamkhnl`)
    - **ITEM_PRIORITY** — when several NT8 items map to the *same* field but don't mean the same thing, rank them in `ITEM_PRIORITY` (higher wins) instead of relying on payload order. `total_available` has three sources and only `NetLiquidation` includes open-position P&L; `CashValue` doesn't move while a position is open, so letting it land last freezes equity — and `dist_drawdown` / `dist_to_daily_loss` are both derived from `total_available`, so the whole risk display freezes with it. Unranked items stay priority 0 (last-wins).
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
-6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
+6. **Runtime** — `/api/batch-update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
 8. **Local build test** — always run `npm run build` (and `npm run cf:build` if the change touches API routes) locally before pushing to catch errors before they hit either host
 9. **`hidden` flag invariant** — `accounts.hidden` is owned exclusively by the sync-accounts auto-hide (there is NO manual-hide UI). batch-update MUST keep forcing `row.hidden = false` when it writes live data: an account actively sending data is live by definition. Never remove that line, and never add read-modify-write round-tripping of flags owned by another endpoint. Incident 2026-07-14: two live LFE accounts vanished from the dashboard because a partial live list during NT8 startup churn hid them, and batch-update's full-row upsert wrote the stale `hidden=true` back after sync-accounts un-hid them — stuck forever since sync only fires on list change. Manual recovery, if ever needed: POST the full live list to `functions/v1/sync-accounts` with the `X-Api-Key` header
