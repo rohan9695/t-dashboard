@@ -50,6 +50,8 @@ Browser Dashboard (React)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key (read-only) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS, server-side only) |
 | `API_KEY` | Auth key NT8 addon sends in `X-Api-Key` header |
+| `NTFY_TOPIC` | ntfy.sh topic for phone alerts. **Unset = notifications off** (endpoint still records fills). Treat as a secret: anyone who knows the topic can read the alerts, so use a long random name. |
+| `NTFY_SERVER` | Optional, defaults to `https://ntfy.sh` |
 
 > **Note**: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are also hardcoded as fallbacks in `lib/supabase/client.ts` and `lib/supabase/server.ts` due to a Vercel env var issue encountered during setup.
 
@@ -69,6 +71,8 @@ app/
     data/route.ts        — GET endpoint, returns all accounts as JSON (?all=1 skips cutoff)
     sync-accounts/route.ts— POST live account list, soft-hides accounts NT8 dropped
     heartbeat/route.ts   — keep-warm ping target
+    trade-event/route.ts — POST one fill round: writes trade_events rows and
+                           sends ONE ntfy phone alert
     debug/items/route.ts — GET endpoint, returns ITEM_MAP for debugging
     auth/*               — WebAuthn (Face ID) registration and login
 
@@ -257,6 +261,25 @@ one malformed row blanked the entire page.
 
 ---
 
+## Fill notifications
+The NT8 addon POSTs **one call per fill round** to `/api/trade-event`, listing
+every account that filled plus `total_accounts` (how many were expected to). The
+addon is the only place that sees the whole round, so aggregating there is what
+keeps a five-account fill to a single phone alert instead of five.
+
+The endpoint writes one `trade_events` row per account — which is what the
+in-page `ToastProvider` toast subscribes to over Realtime — and sends one ntfy
+notification. When fewer accounts filled than expected the alert is escalated to
+**urgent** priority so it breaks through a silenced phone; that mismatch is the
+entire point of the feature.
+
+```
+POST <host>/api/trade-event      X-Api-Key: $API_KEY
+{ "symbol": "ES", "direction": "long", "event_type": "open",
+  "accounts": ["PAAPEX…007", "APEX…089"], "total_accounts": 5, "quantity": 1 }
+```
+`event_type`: open | close | partial · `direction`: long | short | flat ·
+`pnl` only stored on a close. Accounts starting `sim` are ignored.
+
 ## Planned Features (Not Yet Built)
-- Push notifications to iPhone when a trade is open on only one account
 - Alert when drawdown buffer drops below threshold
