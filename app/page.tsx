@@ -11,6 +11,7 @@ import { KillswitchBanner } from '@/components/KillswitchBanner'
 import { ToastProvider } from '@/components/ToastProvider'
 import { VisibilityProvider } from '@/components/VisibilityProvider'
 import { HeartbeatMonitor } from '@/components/HeartbeatMonitor'
+import { SyncBanner } from '@/components/SyncBanner'
 import { WebAuthnGate } from '@/components/WebAuthnGate'
 
 export const revalidate = 0
@@ -52,6 +53,8 @@ export default async function DashboardPage() {
           <VisibilityProvider>
             <div className="min-h-screen flex flex-col header-safe">
               <KillswitchBanner />
+
+              <SyncBanner />
 
               <HeartbeatMonitor />
 
