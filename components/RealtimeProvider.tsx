@@ -25,6 +25,8 @@ interface RealtimeCtx {
   lastSync: Date | null
   /** True once reads have been failing long enough that what's shown may be stale. */
   syncFailed: boolean
+  /** True while the rows on screen came from the local cache, not a live read. */
+  fromCache: boolean
 }
 
 const Ctx = createContext<RealtimeCtx>({
@@ -35,7 +37,36 @@ const Ctx = createContext<RealtimeCtx>({
   refresh: async () => {},
   lastSync: null,
   syncFailed: false,
+  fromCache: false,
 })
+
+// ── Last-known-good cache ────────────────────────────────────────────────────
+// Every successful read is mirrored to localStorage so the dashboard can render
+// real numbers instantly on load and keep rendering them when Supabase, the
+// host, or the network is unreachable. Showing the last known values with an
+// honest age beats an empty screen that looks identical to "you have no
+// accounts". Values stay on the device and never leave it.
+const CACHE_KEY = 'td_accounts_cache'
+
+interface CachedAccounts { rows: AccountRow[]; ts: number }
+
+function readCache(): CachedAccounts | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CachedAccounts
+    if (!Array.isArray(parsed.rows) || parsed.rows.length === 0) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeCache(rows: AccountRow[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ rows, ts: Date.now() }))
+  } catch { /* quota or private mode — cache is an optimisation, never required */ }
+}
 
 export function useRealtime() {
   return useContext(Ctx)
@@ -56,11 +87,13 @@ export function RealtimeProvider({
 
   const [lastSync, setLastSync] = useState<Date | null>(null)
   const [syncFailed, setSyncFailed] = useState(false)
+  const [fromCache, setFromCache] = useState(false)
 
   // Stable supabase client — never recreated across renders
   const supabaseRef = useRef(createClient())
   const channelRef = useRef<ReturnType<typeof supabaseRef.current.channel> | null>(null)
   const failStreak = useRef(0)
+  const inFlight = useRef(false)
 
   // Single source of truth for pulling rows.
   //
@@ -75,22 +108,34 @@ export function RealtimeProvider({
   // So: try the cheap direct read first, and if it yields nothing, fall back to
   // /api/data, which runs server-side under the service role and is unaffected
   // by RLS. Returns null only when BOTH paths fail.
+  // Both reads are time-boxed. An unreachable host does not always refuse
+  // quickly — it can hang until the browser's own socket timeout, which was
+  // measured here at well over 3s. Left unbounded, every cycle stalls on the
+  // dead path before trying the one that works, so the dashboard sits frozen
+  // during exactly the outage the fallback exists to survive.
   const fetchAccounts = useCallback(async (): Promise<AccountRow[] | null> => {
+    const direct = new AbortController()
+    const directTimer = setTimeout(() => direct.abort(), 1_500)
     try {
       const { data, error } = await supabaseRef.current
         .from('accounts')
         .select('*')
         .order('account_id')
+        .abortSignal(direct.signal)
       if (!error && data && data.length > 0) return data as AccountRow[]
       if (error) console.warn('[sync] direct read failed:', error.message)
     } catch (e) {
       console.warn('[sync] direct read threw:', e)
+    } finally {
+      clearTimeout(directTimer)
     }
 
+    const fb = new AbortController()
+    const fbTimer = setTimeout(() => fb.abort(), 4_000)
     try {
       // Same row set as the direct read — all=1 skips the staleness cutoff so
       // offline accounts still render greyed instead of vanishing.
-      const res = await fetch('/api/data?all=1', { cache: 'no-store' })
+      const res = await fetch('/api/data?all=1', { cache: 'no-store', signal: fb.signal })
       if (!res.ok) {
         console.warn('[sync] /api/data returned', res.status)
         return null
@@ -100,6 +145,8 @@ export function RealtimeProvider({
     } catch (e) {
       console.warn('[sync] /api/data threw:', e)
       return null
+    } finally {
+      clearTimeout(fbTimer)
     }
   }, [])
 
@@ -110,14 +157,18 @@ export function RealtimeProvider({
       // Three consecutive misses (~9s) before crying wolf, so a single blip
       // doesn't flash a warning at someone watching a live position.
       if (failStreak.current >= 3) setSyncFailed(true)
+      // Nothing is cleared on failure — whatever is on screen stays on screen,
+      // labelled with its age, rather than collapsing to an empty dashboard.
       return false
     }
     failStreak.current = 0
     setSyncFailed(false)
+    setFromCache(false)
     setAccounts(rows)
     setLastSync(new Date())
     setLastUpdate(new Date())
     setLoading(false)
+    writeCache(rows)
     return true
   }, [])
 
@@ -179,6 +230,18 @@ export function RealtimeProvider({
   // The server-side render may return empty (service key missing) — this ensures
   // the anon client always hydrates accounts within ~500ms of page load.
   useEffect(() => {
+    // Paint cached rows first so the dashboard is never empty while the network
+    // is still in flight — or if it never comes back at all.
+    if (initialAccounts.length === 0) {
+      const cached = readCache()
+      if (cached) {
+        setAccounts(cached.rows)
+        setLastSync(new Date(cached.ts))
+        setFromCache(true)
+        setLoading(false)
+      }
+    }
+
     subscribe()
 
     void (async () => {
@@ -196,7 +259,15 @@ export function RealtimeProvider({
   useEffect(() => {
     const id = setInterval(async () => {
       if (document.hidden) return
-      applyRows(await fetchAccounts())
+      // A degraded cycle can take longer than the interval; without this guard
+      // slow requests pile up on top of each other and make things worse.
+      if (inFlight.current) return
+      inFlight.current = true
+      try {
+        applyRows(await fetchAccounts())
+      } finally {
+        inFlight.current = false
+      }
     }, 3_000)
     return () => clearInterval(id)
   }, [fetchAccounts, applyRows])
@@ -219,7 +290,7 @@ export function RealtimeProvider({
   }, [refresh])
 
   return (
-    <Ctx.Provider value={{ accounts, connected, lastUpdate, loading, refresh, lastSync, syncFailed }}>
+    <Ctx.Provider value={{ accounts, connected, lastUpdate, loading, refresh, lastSync, syncFailed, fromCache }}>
       {children}
     </Ctx.Provider>
   )

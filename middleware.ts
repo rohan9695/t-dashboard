@@ -8,7 +8,6 @@
 //
 // Exclusions (handled separately):
 //   /api/auth/*          – WebAuthn registration/login (unauthenticated)
-//   /api/killswitch*     – has its own KILLSWITCH_TOKEN
 //   /api/set-leader      – dashboard control, unauthenticated (see route file)
 //   /api/heartbeat       – keep-warm function uses Bearer above
 //
@@ -29,24 +28,8 @@ const ALERT_EMAIL      = process.env.ALERT_EMAIL ?? ''
 // Routes that bypass this middleware's auth (they have their own)
 const OPEN_PREFIXES = [
   '/api/auth/',
-  '/api/killswitch',
   '/api/set-leader', // dashboard-only control, matches the dashboard's current unauthenticated posture
 ]
-
-async function isKillswitchActive(): Promise<boolean> {
-  if (!SUPABASE_URL || !SERVICE_KEY) return false
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/app_settings?key=eq.killswitch&select=value&limit=1`,
-      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
-    )
-    if (!res.ok) return false
-    const rows = (await res.json()) as Array<{ value: string }>
-    return rows[0]?.value === 'true'
-  } catch {
-    return false
-  }
-}
 
 function isOpen(pathname: string): boolean {
   return OPEN_PREFIXES.some((p) => pathname.startsWith(p))
@@ -143,15 +126,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Killswitch: return 503 for all /api/* except killswitch routes
-  const killed = await isKillswitchActive()
-  if (killed) {
-    return NextResponse.json(
-      { error: 'Service disabled', killswitch: true },
-      { status: 503 },
-    )
-  }
-
+  // No killswitch check here any more. It ran a blocking Supabase fetch on every
+  // single /api/* request — including every NT8 batch, adding a full round-trip
+  // before any work began — while only covering the Next.js hosts, so it could
+  // never actually stop ingestion reaching the Supabase Edge Function. A stuck
+  // one was also indistinguishable from an outage. Emergency stop, if ever
+  // needed, is disabling the edge function from the Supabase dashboard.
   const authed = await isAuthenticated(req)
 
   // Log every /api/* hit (async — never blocks response)

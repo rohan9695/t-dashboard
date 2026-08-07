@@ -213,18 +213,35 @@ readout. It auto-detects account size from balance:
 
 ---
 
-## Killswitch (check this first when the dashboard looks dead)
-`middleware.ts` gates **every** `/api/*` route on the Next.js hosts. If
-`app_settings.killswitch = 'true'` in Supabase, all of them return **503** —
-including `/api/batch-update` — so NT8 data stops landing while the page itself
-still renders. It does NOT gate the Supabase Edge Function, so ingestion can
-survive on that path alone and mask the problem.
+## Degraded-mode behaviour (why the dashboard should never be blank)
+The dashboard is a risk display, so it must always render something and always
+say how old it is. Three layers, in order:
 
-- **Check** (no auth needed): `GET <host>/api/killswitch` → `{"killswitch":bool}`
-- **Clear**: red banner at the top of the dashboard → **Reset** (double-tap), or
-  `POST /api/killswitch/reset` with `Authorization: Bearer $KILLSWITCH_TOKEN`
-- Extra env vars this uses, beyond the table above: `KILLSWITCH_TOKEN`,
-  `API_SECRET_TOKEN`, `RESEND_API_KEY`, `ALERT_EMAIL`
+1. **Server render** — `getInitialAccounts()` is time-boxed to 2s with an
+   `AbortSignal`. Supabase being *slow* used to be worse than it being *down*:
+   an unbounded await blocked the whole page until it answered.
+2. **Client cache** — every successful read is mirrored to `localStorage`
+   (`td_accounts_cache`) and painted instantly on load, so an unreachable
+   backend shows the last known figures rather than "No accounts connected",
+   which is indistinguishable from genuinely having no accounts.
+3. **Banners** — `SyncBanner` says either *"Showing saved data from N"* (rows
+   came from cache) or *"Dashboard not updating"* (3 consecutive failed
+   fetches). `HeartbeatMonitor` is separate and means NT8 stopped sending —
+   different cause, different fix, so never merge the two.
+
+Both reads in `fetchAccounts()` are time-boxed (1.5s direct, 4s fallback).
+An unreachable host does not always refuse quickly — measured at >3s here — and
+an unbounded read stalls every cycle on the dead path before trying the one that
+works. A poll that overruns the 3s interval is skipped rather than stacked.
+
+`app/error.tsx` and `app/global-error.tsx` catch render exceptions; without them
+one malformed row blanked the entire page.
+
+> There is **no killswitch**. It was removed deliberately: it ran a blocking
+> Supabase fetch on every `/api/*` request (including every NT8 batch), only
+> covered the Next.js hosts so it could never actually stop ingestion reaching
+> the edge function, and a stuck one was indistinguishable from an outage.
+> Emergency stop = disable the edge function from the Supabase dashboard.
 
 ## Known Issues / History
 - Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical

@@ -120,19 +120,13 @@ else {
 # ── Health check ─────────────────────────────────────────────────────────────
 if (-not $SkipHealthCheck) {
     Write-Step 'Health check'
-
     try {
-        $ks = Invoke-RestMethod -Uri "$DashboardUrl/api/killswitch" -TimeoutSec 20
-        if ($ks.killswitch) {
-            Write-Warn 'KILLSWITCH IS ON — every /api/* route returns 503, so NT8 data will not land.'
-            Write-Warn 'Clear it with the red Reset banner on the dashboard before trading.'
-        }
-        else {
-            Write-Ok 'killswitch off'
-        }
+        $res = Invoke-WebRequest -Uri $DashboardUrl -TimeoutSec 20 -UseBasicParsing
+        if ($res.StatusCode -eq 200) { Write-Ok "dashboard responding ($DashboardUrl)" }
+        else { Write-Warn "dashboard returned HTTP $($res.StatusCode)" }
     }
     catch {
-        Write-Warn "could not reach $DashboardUrl/api/killswitch : $($_.Exception.Message)"
+        Write-Warn "could not reach $DashboardUrl : $($_.Exception.Message)"
     }
 }
 
