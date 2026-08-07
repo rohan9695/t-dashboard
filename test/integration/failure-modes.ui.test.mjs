@@ -125,6 +125,57 @@ describe('NT8 firing but Replikanto not copying', { skip }, () => {
   })
 })
 
+describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
+  test('an account that stopped reporting is flagged before any trade fires', async () => {
+    // Every account flat, no position anywhere. One follower dropped 10 minutes
+    // ago while the rest keep reporting.
+    await seedDesk({ leaderOpen: 0, followerOpen: 0 })
+    await seed(account(FOLLOWERS[0], 49000, {
+      replikanto_role: 'follower', dollar_open: 0, last_update: minsAgo(10),
+    }))
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    const text = await page.locator('body').innerText()
+
+    assert.match(text, /not reporting/i, 'warns with no trade in flight')
+    assert.match(text, /would reach 4 of 5/i, 'says how many a trade would actually reach')
+    await context.close()
+  })
+
+  test('a quiet desk is NOT mistaken for a dropped account', async () => {
+    // Everything equally old — NT8 simply has nothing to say between trades.
+    // An absolute staleness check would cry wolf here; a relative one must not.
+    await seedDesk({ lastUpdate: minsAgo(20) })
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    assert.doesNotMatch(await page.locator('body').innerText(), /not reporting/i)
+    await context.close()
+  })
+
+  test('a healthy desk shows no banner at all', async () => {
+    await seedDesk()
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    const text = await page.locator('body').innerText()
+    assert.doesNotMatch(text, /not reporting|not copying/i)
+    await context.close()
+  })
+
+  test('an active copier failure outranks the readiness warning', async () => {
+    await seedDesk({ leaderOpen: 425.50, followerOpen: 0 })
+    await seed(account(FOLLOWERS[0], 49000, {
+      replikanto_role: 'follower', dollar_open: 0, last_update: minsAgo(10),
+    }))
+    const { context, page } = await open()
+    await page.waitForTimeout(48_000)
+    const text = await page.locator('body').innerText()
+    assert.match(text, /not copying/i, 'the worse problem is the one shown')
+    assert.doesNotMatch(text, /not reporting/i, 'only one banner at a time')
+    await context.close()
+  })
+})
+
 describe('dashboard claiming to be online when it is not', { skip }, () => {
   test('freshness tracks NT8, not the host answering', async () => {
     // The host is up and serving happily; NT8 stopped 45 minutes ago. The
