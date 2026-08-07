@@ -267,11 +267,29 @@ one malformed row blanked the entire page.
 `accounts.replikanto_role` is `'leader' | 'follower' | null`. It drives the
 LEADER badge, sorting the leader to the top, and `CopierBanner`.
 
-**Copier-failure detection.** `CopierBanner` compares the leader against the
-followers: if the leader holds an open position (`dollar_open != 0`) for longer
-than a 45s grace period while a live follower is still flat, the copy did not
-happen and a banner names how many accounts are affected. Offline followers
-(>30 min silent) are excluded — they were never going to fill.
+`CopierBanner` shows two problems, worst first:
+
+**1. Not copying** (during a trade) — the leader holds an open position
+(`dollar_open != 0`) for longer than a 45s grace period while a live follower is
+still flat. Offline followers (>30 min silent) are excluded; they were never
+going to fill.
+
+**2. Not ready** (needs no trade) — an account has stopped reporting while the
+others carry on, so a trade fired now could not reach it. This is the pre-trade
+warning: it does not wait for money to be at risk.
+
+The readiness check compares each account against the **freshest** account
+rather than against the clock. NT8 sends every account in one batch, so their
+timestamps move together — a relative comparison is what separates "NT8 is quiet
+right now" (all equally old, nothing wrong) from "this account dropped" (one far
+behind the rest). Every other staleness check in the app is absolute and cannot
+make that distinction. Threshold is 3 minutes, several missed batches even at
+the 30s out-of-window flush rate.
+
+> **This cannot tell you whether Replikanto itself is connected.** That state
+> lives inside NinjaTrader and nothing reports it here. Accounts reporting is a
+> precondition for copying, not proof of it. For Replikanto's own status the NT8
+> addon would have to read it and POST it.
 
 > Depends on **open P&L being reported**. `dollar_open` comes from NT8's
 > `UnrealizedProfitLoss` / `DollarOpen` items; if the addon does not subscribe
