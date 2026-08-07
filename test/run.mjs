@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { networkInterfaces } from 'node:os'
 
 const DB_PORT   = 54321
 const NTFY_PORT = 8099
@@ -30,6 +31,22 @@ const env = {
   NTFY_SERVER:                   `http://127.0.0.1:${NTFY_PORT}`,
   NTFY_TOPIC:                    'test-topic',
   PORT:                          String(APP_PORT),
+  // Enables /api/auth/sandbox-login so a phone on the same network can get past
+  // the Face ID gate. Never set by a deploy — see that route for the second gate.
+  SANDBOX_MODE:                  '1',
+  // Bind all interfaces so the phone can reach it; 127.0.0.1 only would not.
+  HOSTNAME:                      '0.0.0.0',
+}
+
+/** First non-internal IPv4 address, i.e. the one a phone can reach. */
+function lanAddress() {
+  const nets = networkInterfaces()
+  for (const addrs of Object.values(nets)) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address
+    }
+  }
+  return null
 }
 
 const children = []
@@ -123,12 +140,18 @@ if (SANDBOX_ONLY) {
     })
   }
 
+  const lan = lanAddress()
   console.log(`
   Sandbox ready — nothing here touches production.
 
-    Dashboard      http://127.0.0.1:${APP_PORT}
-    Notifications  http://127.0.0.1:${NTFY_PORT}/__notifications
-    Stored rows    http://127.0.0.1:${DB_PORT}/__accounts
+    On this machine   http://127.0.0.1:${APP_PORT}
+${lan ? `    On your phone     http://${lan}:${APP_PORT}/api/auth/sandbox-login
+                      (same Wi-Fi. Open that exact URL once — it unlocks the
+                       Face ID gate, which cannot run over plain HTTP, then
+                       redirects to the dashboard.)
+` : '    On your phone     no LAN address detected\n'}
+    Notifications     http://127.0.0.1:${NTFY_PORT}/__notifications
+    Stored rows       http://127.0.0.1:${DB_PORT}/__accounts
 
   Fire a partial fill and watch the alert:
 

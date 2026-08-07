@@ -157,6 +157,11 @@ export function RealtimeProvider({
       // Three consecutive misses (~9s) before crying wolf, so a single blip
       // doesn't flash a warning at someone watching a live position.
       if (failStreak.current >= 3) setSyncFailed(true)
+      // A completed attempt ends the loading state even when it failed.
+      // Otherwise, with no cache and an unreachable backend, the grid sat on
+      // its shimmering skeleton forever — which reads as "still loading" when
+      // the truth is "this is not coming".
+      setLoading(false)
       // Nothing is cleared on failure — whatever is on screen stays on screen,
       // labelled with its age, rather than collapsing to an empty dashboard.
       return false

@@ -1,66 +1,51 @@
 'use client'
 // components/HeartbeatMonitor.tsx
-// Monitors last NT8 heartbeat ping.
-// If no ping in 60s → red banner + iPhone push notification + Resend email (via /api/heartbeat-alert).
-// Heartbeat is updated by /api/heartbeat GET calls from the NT8 addon.
+// "NinjaTrader offline" banner — no data has arrived from NT8 for a while.
+//
+// Deliberately distinct from SyncBanner: this means the DATA stopped coming,
+// SyncBanner means this BROWSER stopped receiving. Different causes, different
+// fixes, so they must never be merged.
+//
+// Reads the accounts already held by RealtimeProvider rather than querying
+// Supabase itself. The old version issued its own anon-key query every 10s,
+// which RLS denies — it returned an empty array, hit the `if (!data) return`
+// guard, and the banner therefore never appeared at all. Deriving it from
+// state that is already loaded fixes that and removes a duplicate query.
 
-import { useEffect, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useEffect, useState } from 'react'
+import { useRealtime } from './RealtimeProvider'
 import { formatAge } from './AccountCard'
 
 const HEARTBEAT_TIMEOUT_MS = 10 * 60_000 // 10 minutes — NT8 quiet between trades is normal
 
 export function HeartbeatMonitor() {
-  const [nt8Down, setNt8Down] = useState(false)
-  const [lastSeenText, setLastSeenText] = useState('')
-  const supabaseRef = useRef(createClient())
+  const { accounts } = useRealtime()
+  const [now, setNow] = useState(() => Date.now())
 
+  // Re-evaluate on a timer so the banner appears, and its age counts up,
+  // without needing new data to arrive.
   useEffect(() => {
-    const supabase = supabaseRef.current
-
-    async function checkHeartbeat() {
-      // The NT8 addon pings /api/heartbeat. We check the most recent account update
-      // as a proxy — if ALL accounts are stale for 60s, NT8 is likely down.
-      const { data } = await supabase
-        .from('accounts')
-        .select('last_update')
-        .order('last_update', { ascending: false })
-        .limit(1)
-
-      if (!data || data.length === 0) return
-
-      const lastMs = new Date(data[0].last_update as string).getTime()
-      const ageMs  = Date.now() - lastMs
-
-      if (ageMs > HEARTBEAT_TIMEOUT_MS) {
-        const ageSeconds = Math.floor(ageMs / 1_000)
-        const ageText    = formatAge(ageSeconds)
-        setLastSeenText(ageText)
-        setNt8Down(true)
-
-        // Browser push notification
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('⚠️ NinjaTrader Offline', {
-            body: `No data received for ${ageText}. Check NT8.`,
-            icon: '/icon-192.png',
-          })
-        }
-      } else {
-        setNt8Down(false)
-      }
-    }
-
-    checkHeartbeat()
-    const id = setInterval(checkHeartbeat, 10_000)
+    const id = setInterval(() => setNow(Date.now()), 10_000)
     return () => clearInterval(id)
   }, [])
 
-  if (!nt8Down) return null
+  const visible = accounts.filter((a) => !a.hidden)
+  if (visible.length === 0) return null
+
+  // Freshest account wins: one live account means NT8 is still sending.
+  const newest = visible.reduce((max, a) => {
+    const t = new Date(a.last_update).getTime()
+    return Number.isFinite(t) && t > max ? t : max
+  }, 0)
+  if (newest === 0) return null
+
+  const ageMs = now - newest
+  if (ageMs <= HEARTBEAT_TIMEOUT_MS) return null
 
   return (
-    <div className="bg-red-950/60 border-b border-red-800/50 text-red-300 text-xs font-medium px-4 py-2 flex items-center justify-center gap-2">
-      <span className="animate-pulse">🔴</span>
-      <span>NinjaTrader offline — no data for {lastSeenText}</span>
+    <div className="bg-red-950/60 border-b border-red-800/50 text-red-300 text-xs font-medium px-4 py-2 flex items-center justify-center gap-2 text-center">
+      <span className="animate-pulse shrink-0">🔴</span>
+      <span>NinjaTrader offline — no data for {formatAge(Math.floor(ageMs / 1_000))}</span>
     </div>
   )
 }
