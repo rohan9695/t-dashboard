@@ -11,6 +11,7 @@ import { ToastProvider } from '@/components/ToastProvider'
 import { VisibilityProvider } from '@/components/VisibilityProvider'
 import { HeartbeatMonitor } from '@/components/HeartbeatMonitor'
 import { SyncBanner } from '@/components/SyncBanner'
+import { CopierBanner } from '@/components/CopierBanner'
 import { WebAuthnGate } from '@/components/WebAuthnGate'
 
 export const revalidate = 0
@@ -67,6 +68,8 @@ export default async function DashboardPage() {
               <SyncBanner />
 
               <HeartbeatMonitor />
+
+              <CopierBanner />
 
               <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
                 <SummaryBar />

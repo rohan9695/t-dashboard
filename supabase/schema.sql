@@ -192,6 +192,12 @@ create table if not exists account_events (
 create index if not exists account_events_account_idx on account_events(account_id, occurred_at desc);
 alter table account_events enable row level security;
 
+-- Replikanto copier role. Drives the leader badge, the sort order, and the
+-- copier-failure banner (leader in a position while followers sit flat).
+-- Set it with POST /api/set-leader, not by hand.
+-- alter table accounts add column if not exists replikanto_role text
+--   check (replikanto_role in ('leader','follower'));
+
 -- Add locked/quarantined columns to accounts (run ALTER separately if table exists)
 -- alter table accounts add column if not exists locked boolean default false;
 -- alter table accounts add column if not exists quarantined boolean default false;

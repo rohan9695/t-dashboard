@@ -71,6 +71,7 @@ app/
     data/route.ts        — GET endpoint, returns all accounts as JSON (?all=1 skips cutoff)
     sync-accounts/route.ts— POST live account list, soft-hides accounts NT8 dropped
     heartbeat/route.ts   — keep-warm ping target
+    set-leader/route.ts  — POST { account_id } to set the Replikanto leader
     trade-event/route.ts — POST one fill round: writes trade_events rows and
                            sends ONE ntfy phone alert
     debug/items/route.ts — GET endpoint, returns ITEM_MAP for debugging
@@ -84,6 +85,7 @@ components/
   SyncBanner.tsx         — "saved data" / "not updating" degraded-mode banner
   HeartbeatMonitor.tsx   — "NT8 offline" banner (separate cause from SyncBanner)
   RefreshButton.tsx      — Manual re-pull + realtime resubscribe
+  CopierBanner.tsx       — "Replikanto not copying" (leader open, followers flat)
 
 lib/
   trading-logic.ts       — Core business logic (ported from main.py):
@@ -260,6 +262,31 @@ one malformed row blanked the entire page.
 - Next.js was upgraded from `15.1.0` → `15.5.19` to resolve CVE-2025-66478
 
 ---
+
+## Replikanto (trade copier)
+`accounts.replikanto_role` is `'leader' | 'follower' | null`. It drives the
+LEADER badge, sorting the leader to the top, and `CopierBanner`.
+
+**Copier-failure detection.** `CopierBanner` compares the leader against the
+followers: if the leader holds an open position (`dollar_open != 0`) for longer
+than a 45s grace period while a live follower is still flat, the copy did not
+happen and a banner names how many accounts are affected. Offline followers
+(>30 min silent) are excluded — they were never going to fill.
+
+> Depends on **open P&L being reported**. `dollar_open` comes from NT8's
+> `UnrealizedProfitLoss` / `DollarOpen` items; if the addon does not subscribe
+> to them every account reads flat and this can never fire. Check `nt_fields`
+> per account in `/api/data` to see what NT8 actually sends.
+
+The addon-side equivalent is the partial-fill ntfy alert below, which works with
+the phone locked — the banner needs the page open. They are deliberately
+independent.
+
+**Setting the leader** (no UI — the Settings page was deleted):
+```
+curl -X POST https://<host>/api/set-leader -H "X-Api-Key: $API_KEY" \
+     -H 'Content-Type: application/json' -d '{"account_id":"PAAPEX…007"}'
+```
 
 ## Fill notifications
 The NT8 addon POSTs **one call per fill round** to `/api/trade-event`, listing
