@@ -256,6 +256,56 @@ one malformed row blanked the entire page.
 > the edge function, and a stuck one was indistinguishable from an outage.
 > Emergency stop = disable the edge function from the Supabase dashboard.
 
+## Open items (handoff — 2026-08-07)
+
+Everything below is merged to `main` and DEPLOYED (Cloudflare + all three
+Supabase edge functions). Total Accounts reading 5 confirmed the new build live.
+
+### Do first
+1. **Rotate `API_KEY`** — it was pasted into a chat transcript, so treat it as
+   public. Whoever holds it can write fake account data, fire fake phone alerts,
+   and read every balance via `/api/data`. Change it in all four places or
+   ingestion stops: Cloudflare Worker vars → `npx supabase secrets set API_KEY=…
+   --project-ref gvbtnsktudmgmpamkhnl` → Netlify vars (if still set) →
+   `AccountMonitor.cs`. Do NT8 last; expect 401s until all four agree.
+2. **Push local `main`.** A deploy was run from an unpushed working tree, so the
+   live build contained commits CI never saw. `origin/main` and production must
+   match before the auto-deploy is switched on, or GitHub will overwrite live
+   with a different build.
+3. **Check `nt_fields`** for the leader in `/api/data` (Safari, after Face ID *in
+   Safari* — the home-screen PWA has a separate cookie jar). If neither
+   `unrealized_pnl` nor `dollar_open` is listed, NT8 is not sending open P&L, so
+   `CopierBanner`'s "not copying" case can never fire and the addon needs to
+   subscribe to `UnrealizedProfitLoss`. The readiness warning and the ntfy
+   partial-fill alert work either way.
+
+### To finish the automation
+4. Add three repo secrets so deploys stop being manual: `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_ACCESS_TOKEN`. Until then `deploy.yml`
+   runs the tests and skips the deploy steps.
+5. Set **`NTFY_TOPIC`** in Cloudflare vars — unset means notifications are
+   silently off, though fills are still recorded.
+
+### Known, not yet done
+- **Column overlap**: a 4-digit P&L collides with Net Liq in the mobile list
+  row. Pre-existing. Left alone on request — no CSS changes for now.
+- **`ToastProvider`** subscribes to `trade_events`, which only `/api/trade-event`
+  writes. Until the NT8 addon posts fills there, in-page toasts never fire.
+- **NT8 addon changes** (not in this repo): POST one call per fill round to
+  `/api/trade-event` with `accounts[]` + `total_accounts`; subscribe to
+  `UnrealizedProfitLoss` if item 3 shows it missing.
+- **Netlify "never working"** — unverified. Most likely its env vars were never
+  set, so every request 500s. Check its deploy log and env panel.
+- **One writer, not three**: collapse the parallel fan-out to Supabase-primary
+  with Cloudflare as sequential failover. Removes the `last_batch_ts` race guard
+  and the hand-synced duplicate of `trading-logic.ts`. Needs an addon change.
+
+### Testing
+`npm test` (full, ~6 min) · `npm run test:unit` (~300ms) · `npm run sandbox`
+(mock stack on :3100, prints a phone URL). CI runs the lot on every push and is
+the source of truth — it caught two defects that passed locally, including the
+browser being hardcoded to the production database.
+
 ## Known Issues / History
 - Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical
 - `NEXT_PUBLIC_SUPABASE_URL` was incorrectly set to the Supabase dashboard URL instead of the API URL during initial setup — hardcoded fallbacks were added to `client.ts` and `server.ts` to prevent this from breaking the app again
