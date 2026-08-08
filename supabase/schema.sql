@@ -86,6 +86,13 @@ create policy "auth_read_conn_logs"
 
 -- Service-role key (used by /api/update) bypasses RLS automatically —
 -- no extra policy needed.
+--
+-- NOTE: there is deliberately NO anon SELECT policy on `accounts`. The anon key
+-- is hardcoded in lib/supabase/client.ts and ships in the browser bundle, so
+-- granting anon SELECT here would expose every account balance publicly.
+-- Because of that the dashboard's direct reads return an empty set (RLS denies
+-- silently rather than erroring) and RealtimeProvider falls back to
+-- /api/data?all=1, which runs under the service role behind middleware auth.
 
 -- ── ACCESS LOGS (Task 2A) ───────────────────────────────────
 -- Written async by middleware on every /api/* hit
@@ -184,6 +191,12 @@ create table if not exists account_events (
 
 create index if not exists account_events_account_idx on account_events(account_id, occurred_at desc);
 alter table account_events enable row level security;
+
+-- Replikanto copier role. Drives the leader badge, the sort order, and the
+-- copier-failure banner (leader in a position while followers sit flat).
+-- Set it with POST /api/set-leader, not by hand.
+-- alter table accounts add column if not exists replikanto_role text
+--   check (replikanto_role in ('leader','follower'));
 
 -- Add locked/quarantined columns to accounts (run ALTER separately if table exists)
 -- alter table accounts add column if not exists locked boolean default false;

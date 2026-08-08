@@ -27,7 +27,9 @@
   padding-bottom: max(env(safe-area-inset-bottom), 1rem);
 }
 
-/* Toast: always above the home indicator + 2rem gap */
-.toast-bottom {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem);
+/* Toast: hard against the top, just clear of the Dynamic Island / notch.
+   Kept as high as possible so a transient toast covers as little of the
+   summary figures as it can while it is on screen. */
+.toast-top {
+  top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
 }

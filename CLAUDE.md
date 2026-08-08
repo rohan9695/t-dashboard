@@ -50,6 +50,8 @@ Browser Dashboard (React)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key (read-only) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS, server-side only) |
 | `API_KEY` | Auth key NT8 addon sends in `X-Api-Key` header |
+| `NTFY_TOPIC` | ntfy.sh topic for phone alerts. **Unset = notifications off** (endpoint still records fills). Treat as a secret: anyone who knows the topic can read the alerts, so use a long random name. |
+| `NTFY_SERVER` | Optional, defaults to `https://ntfy.sh` |
 
 > **Note**: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are also hardcoded as fallbacks in `lib/supabase/client.ts` and `lib/supabase/server.ts` due to a Vercel env var issue encountered during setup.
 
@@ -62,17 +64,28 @@ app/
   page.tsx               — Server component, fetches initial accounts, renders dashboard
   layout.tsx             — Root layout, PWA meta tags
   globals.css            — Tailwind base styles
+  error.tsx              — Route error boundary (never leave a blank page)
+  global-error.tsx       — Root error boundary
   api/
-    update/route.ts      — POST endpoint, receives NT8 data, upserts to Supabase
-    data/route.ts        — GET endpoint, returns all accounts as JSON
+    batch-update/route.ts— POST endpoint, receives NT8 batches, upserts to Supabase
+    data/route.ts        — GET endpoint, returns all accounts as JSON (?all=1 skips cutoff)
+    sync-accounts/route.ts— POST live account list, soft-hides accounts NT8 dropped
+    heartbeat/route.ts   — keep-warm ping target
+    set-leader/route.ts  — POST { account_id } to set the Replikanto leader
+    trade-event/route.ts — POST one fill round: writes trade_events rows and
+                           sends ONE ntfy phone alert
     debug/items/route.ts — GET endpoint, returns ITEM_MAP for debugging
+    auth/*               — WebAuthn (Face ID) registration and login
 
 components/
   RealtimeProvider.tsx   — Supabase Realtime WebSocket subscription, React context
   AccountsGrid.tsx       — Table of all accounts
   AccountCard.tsx        — Single account row in the table (also exports AccountRow)
   SummaryBar.tsx         — Total accounts / balance / profit summary cards
-  StatusBar.tsx          — Header with connection status and clock
+  SyncBanner.tsx         — "saved data" / "not updating" degraded-mode banner
+  HeartbeatMonitor.tsx   — "NT8 offline" banner (separate cause from SyncBanner)
+  RefreshButton.tsx      — Manual re-pull + realtime resubscribe
+  CopierBanner.tsx       — "Replikanto not copying" (leader open, followers flat)
 
 lib/
   trading-logic.ts       — Core business logic (ported from main.py):
@@ -95,7 +108,7 @@ public/
 
 ## Data Flow
 
-### NT8 → Vercel (`/api/update`)
+### NT8 → `/api/batch-update`
 The NT8 addon sends one of three payload shapes:
 
 1. **ItemUpdate** — single field update:
@@ -148,8 +161,18 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 | `status` | text | 'active', 'stale', or 'breached' |
 
 ### RLS Policies
-- `anon` role: SELECT on accounts and alerts (dashboard read access)
-- `service_role`: bypasses RLS (used by /api/update)
+- `accounts` / `alerts`: SELECT granted to the **`authenticated`** role only.
+  The browser client uses the **anon** key, so its direct reads of `accounts`
+  are denied — and under RLS a denied SELECT returns an **empty array, not an
+  error**, which is silently indistinguishable from "no accounts exist".
+  `RealtimeProvider` therefore falls back to `/api/data?all=1` (service role,
+  gated by middleware + `td_session` cookie) whenever a direct read comes back
+  empty. Realtime events are subject to the same RLS, so the 3s poll — not the
+  WebSocket — is what actually keeps the dashboard live.
+  > Do **not** "fix" this by granting `anon` SELECT on `accounts`: the anon key
+  > is hardcoded in `lib/supabase/client.ts` and ships in the JS bundle, so that
+  > would publish every account balance to anyone who opens the page source.
+- `service_role`: bypasses RLS (used by the server-side API routes)
 
 ---
 
@@ -162,7 +185,15 @@ RealizedProfitLoss / GrossRealizedProfitLoss → realized_pnl
 ---
 
 ## Apex Prop Firm Account Profiles
-The dashboard auto-detects account size and applies correct drawdown rules:
+**NT8 is the source of truth for risk numbers.** Any of `dist_drawdown`,
+`dist_to_daily_loss`, `drawdown_auto`, `trailing_max` that NT8 reports directly
+is stored and displayed exactly as sent — the dashboard must not disagree with
+the number on the trading screen. Ownership is tracked per field in
+`accounts.nt_fields`.
+
+The profile table below is a **fallback only**, applied to fields NT8 never
+sent, so an account whose addon reports just equity still gets a usable risk
+readout. It auto-detects account size from balance:
 
 | Size | Starting | Trailing Max | Daily Loss | Safety Floor |
 |---|---|---|---|---|
@@ -170,6 +201,12 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 | 100K | $100,000 | $3,000 | $1,200 | $100,100 |
 | 50K  | $50,000  | $2,000 | $1,000 | $50,100  |
 | 25K  | $25,000  | $1,000 | $500   | $25,100  |
+
+> Known trade-off: NT8 has been seen reporting `0` for these fields while equity
+> was clearly non-zero. Such a `0` now displays as a zero buffer and flags the
+> account `breached`. That is deliberate — a visible false alarm that clears on
+> the next update beats the previous behaviour, where a balance-guessed profile
+> could show a healthy buffer on an account that was actually in trouble.
 
 ---
 
@@ -179,14 +216,45 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 2. **Never commit secrets** — `SUPABASE_SERVICE_ROLE_KEY` and `API_KEY` must stay in each host's env vars only
 3. **Push to `main` only** — Netlify auto-deploys from `main` via its GitHub link; Cloudflare does NOT auto-deploy and needs a manual `wrangler deploy` (see deployment memory) after every change that should go live there. The old `vercel/react-server-components-cve-vu-7f5ap6` branch is no longer force-pushed to since Vercel was dropped — leave it as-is.
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP. Also: `supabase/functions/_shared/trading-logic.ts` is a mirror copy of `lib/trading-logic.ts` for the Deno edge functions — any change to the lib file must be copied there and the `batch-update`/`sync-accounts` edge functions re-deployed (`npx supabase functions deploy <name> --no-verify-jwt --project-ref gvbtnsktudmgmpamkhnl`)
+   - **ITEM_PRIORITY** — when several NT8 items map to the *same* field but don't mean the same thing, rank them in `ITEM_PRIORITY` (higher wins) instead of relying on payload order. `total_available` has three sources and only `NetLiquidation` includes open-position P&L; `CashValue` doesn't move while a position is open, so letting it land last freezes equity — and `dist_drawdown` / `dist_to_daily_loss` are both derived from `total_available`, so the whole risk display freezes with it. Unranked items stay priority 0 (last-wins).
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
-6. **Runtime** — `/api/update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
+6. **Runtime** — `/api/batch-update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
 8. **Local build test** — always run `npm run build` (and `npm run cf:build` if the change touches API routes) locally before pushing to catch errors before they hit either host
 9. **`hidden` flag invariant** — `accounts.hidden` is owned exclusively by the sync-accounts auto-hide (there is NO manual-hide UI). batch-update MUST keep forcing `row.hidden = false` when it writes live data: an account actively sending data is live by definition. Never remove that line, and never add read-modify-write round-tripping of flags owned by another endpoint. Incident 2026-07-14: two live LFE accounts vanished from the dashboard because a partial live list during NT8 startup churn hid them, and batch-update's full-row upsert wrote the stale `hidden=true` back after sync-accounts un-hid them — stuck forever since sync only fires on list change. Manual recovery, if ever needed: POST the full live list to `functions/v1/sync-accounts` with the `X-Api-Key` header
 10. **Cloudflare deploy on this Windows machine** — plain `npx wrangler deploy` fails (`ERR_RUNTIME_FAILURE`: workerd access violation when wrangler delegates to `opennextjs-cloudflare deploy`). Use the rename workaround in PowerShell: `Rename-Item open-next.config.ts open-next.config.ts.bak; npx wrangler deploy; Rename-Item open-next.config.ts.bak open-next.config.ts` (after `npm run cf:build`)
 
 ---
+
+## Degraded-mode behaviour (why the dashboard should never be blank)
+The dashboard is a risk display, so it must always render something and always
+say how old it is. Three layers, in order:
+
+1. **Server render** — `getInitialAccounts()` is time-boxed to 2s with an
+   `AbortSignal`. Supabase being *slow* used to be worse than it being *down*:
+   an unbounded await blocked the whole page until it answered.
+2. **Client cache** — every successful read is mirrored to `localStorage`
+   (`td_accounts_cache`) and painted instantly on load, so an unreachable
+   backend shows the last known figures rather than "No accounts connected",
+   which is indistinguishable from genuinely having no accounts.
+3. **Banners** — `SyncBanner` says either *"Showing saved data from N"* (rows
+   came from cache) or *"Dashboard not updating"* (3 consecutive failed
+   fetches). `HeartbeatMonitor` is separate and means NT8 stopped sending —
+   different cause, different fix, so never merge the two.
+
+Both reads in `fetchAccounts()` are time-boxed (1.5s direct, 4s fallback).
+An unreachable host does not always refuse quickly — measured at >3s here — and
+an unbounded read stalls every cycle on the dead path before trying the one that
+works. A poll that overruns the 3s interval is skipped rather than stacked.
+
+`app/error.tsx` and `app/global-error.tsx` catch render exceptions; without them
+one malformed row blanked the entire page.
+
+> There is **no killswitch**. It was removed deliberately: it ran a blocking
+> Supabase fetch on every `/api/*` request (including every NT8 batch), only
+> covered the Next.js hosts so it could never actually stop ingestion reaching
+> the edge function, and a stuck one was indistinguishable from an outage.
+> Emergency stop = disable the edge function from the Supabase dashboard.
 
 ## Known Issues / History
 - Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical
@@ -195,6 +263,68 @@ The dashboard auto-detects account size and applies correct drawdown rules:
 
 ---
 
+## Replikanto (trade copier)
+`accounts.replikanto_role` is `'leader' | 'follower' | null`. It drives the
+LEADER badge, sorting the leader to the top, and `CopierBanner`.
+
+`CopierBanner` shows two problems, worst first:
+
+**1. Not copying** (during a trade) — the leader holds an open position
+(`dollar_open != 0`) for longer than a 45s grace period while a live follower is
+still flat. Offline followers (>30 min silent) are excluded; they were never
+going to fill.
+
+**2. Not ready** (needs no trade) — an account has stopped reporting while the
+others carry on, so a trade fired now could not reach it. This is the pre-trade
+warning: it does not wait for money to be at risk.
+
+The readiness check compares each account against the **freshest** account
+rather than against the clock. NT8 sends every account in one batch, so their
+timestamps move together — a relative comparison is what separates "NT8 is quiet
+right now" (all equally old, nothing wrong) from "this account dropped" (one far
+behind the rest). Every other staleness check in the app is absolute and cannot
+make that distinction. Threshold is 3 minutes, several missed batches even at
+the 30s out-of-window flush rate.
+
+> **This cannot tell you whether Replikanto itself is connected.** That state
+> lives inside NinjaTrader and nothing reports it here. Accounts reporting is a
+> precondition for copying, not proof of it. For Replikanto's own status the NT8
+> addon would have to read it and POST it.
+
+> Depends on **open P&L being reported**. `dollar_open` comes from NT8's
+> `UnrealizedProfitLoss` / `DollarOpen` items; if the addon does not subscribe
+> to them every account reads flat and this can never fire. Check `nt_fields`
+> per account in `/api/data` to see what NT8 actually sends.
+
+The addon-side equivalent is the partial-fill ntfy alert below, which works with
+the phone locked — the banner needs the page open. They are deliberately
+independent.
+
+**Setting the leader** (no UI — the Settings page was deleted):
+```
+curl -X POST https://<host>/api/set-leader -H "X-Api-Key: $API_KEY" \
+     -H 'Content-Type: application/json' -d '{"account_id":"PAAPEX…007"}'
+```
+
+## Fill notifications
+The NT8 addon POSTs **one call per fill round** to `/api/trade-event`, listing
+every account that filled plus `total_accounts` (how many were expected to). The
+addon is the only place that sees the whole round, so aggregating there is what
+keeps a five-account fill to a single phone alert instead of five.
+
+The endpoint writes one `trade_events` row per account — which is what the
+in-page `ToastProvider` toast subscribes to over Realtime — and sends one ntfy
+notification. When fewer accounts filled than expected the alert is escalated to
+**urgent** priority so it breaks through a silenced phone; that mismatch is the
+entire point of the feature.
+
+```
+POST <host>/api/trade-event      X-Api-Key: $API_KEY
+{ "symbol": "ES", "direction": "long", "event_type": "open",
+  "accounts": ["PAAPEX…007", "APEX…089"], "total_accounts": 5, "quantity": 1 }
+```
+`event_type`: open | close | partial · `direction`: long | short | flat ·
+`pnl` only stored on a close. Accounts starting `sim` are ignored.
+
 ## Planned Features (Not Yet Built)
-- Push notifications to iPhone when a trade is open on only one account
 - Alert when drawdown buffer drops below threshold

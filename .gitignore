@@ -2,6 +2,8 @@
 .env
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 out/
 *.db
 account_state.json
@@ -15,3 +17,6 @@ account_state.json
 
 # Supabase CLI local state
 supabase/.temp/
+
+# Playwright browsers if ever installed locally
+test-results/

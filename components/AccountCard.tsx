@@ -45,6 +45,10 @@ export function secondsAgo(iso: string, now = Date.now()): { text: string; stale
 
 const DASH = '——'
 
+// No breach badge and no red status dot. Risk state is carried by the numbers
+// themselves — DD Buffer and Daily Left already turn amber then red through
+// distColor() as they approach zero, so a breached account reads as a red 0.00
+// where you are already looking. The status dot means connection only.
 function ReplikantoTag({ role }: { role?: 'leader' | 'follower' | null }) {
   if (!role) return null
   return role === 'leader' ? (
@@ -110,13 +114,16 @@ export function AccountRow({
     <tr className={`border-b border-zinc-800 transition-all duration-300 ${rowBg}`}>
       {show('status') && (
         <td className="px-3 py-3 w-8">
-          <span className={[
-            'inline-block w-2.5 h-2.5 rounded-full',
-            isBreached ? 'bg-red-500'
-              : offline  ? 'bg-zinc-600'
-              : isStale  ? 'bg-amber-400'
-              : 'bg-emerald-400',
-          ].join(' ')} />
+          {/* Connection state only. */}
+          <span
+            title={offline ? 'Offline — no data for 30 min' : isStale ? 'No update in the last 10 min' : 'Live'}
+            className={[
+              'inline-block w-2.5 h-2.5 rounded-full',
+              offline  ? 'bg-zinc-600'
+                : isStale  ? 'bg-amber-400'
+                : 'bg-emerald-400',
+            ].join(' ')}
+          />
         </td>
       )}
 
@@ -276,21 +283,24 @@ export function MobileListRow({
 }) {
   const {
     account_id, dollar_open,
-    realized_pnl, unrealized_pnl, total_available, last_update, status,
+    realized_pnl, unrealized_pnl, total_available, last_update,
   } = row
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
-  const isBreached = status === 'breached'
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
 
-  const dotColor = isBreached ? 'bg-red-500'
-    : offline  ? 'bg-zinc-600'
-    : isAged   ? 'bg-amber-400'
+  // Connection state only — a breached account that is still reporting is live,
+  // and saying so is more useful than colouring the dot red.
+  const dotColor = offline ? 'bg-zinc-600'
+    : isAged ? 'bg-amber-400'
     : 'bg-emerald-400'
+  const dotTitle = offline ? 'Offline — no data for 30 min'
+    : isAged ? 'No update in the last 10 min'
+    : 'Live'
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/70 last:border-0">
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+      <span title={dotTitle} className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
 
       <div className="w-[90px] shrink-0 min-w-0">
         <div className="flex items-center gap-1">
@@ -359,9 +369,10 @@ export function MobileAccountCard({
   const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
   const isStale = isAged
 
+  // Connection state only.
   const dotColor = offline
     ? 'bg-zinc-700'
-    : isBreached ? 'bg-red-500' : isStale ? 'bg-zinc-600' : 'bg-emerald-400'
+    : isStale ? 'bg-zinc-600' : 'bg-emerald-400'
 
   const cardBorder = isBreached ? 'border-red-800/50 bg-red-950/20' : 'border-zinc-800 bg-zinc-900'
 

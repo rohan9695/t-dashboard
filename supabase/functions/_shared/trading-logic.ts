@@ -34,6 +34,25 @@ export const ITEM_MAP: Record<string, string> = {
   DailyPnL:                  'tradovate_daily_pnl',
 }
 
+// ── ITEM PRIORITY ───────────────────────────────────────────────────────────
+// Several NT8 items map to the same dashboard field but do NOT mean the same
+// thing. A single batch can carry more than one of them, and plain
+// last-key-wins iteration would let the weakest source overwrite the best one.
+//
+// total_available is meant to be account equity. NetLiquidation includes the
+// P&L of open positions; CashValue does not move at all while a position is
+// open. Letting CashValue land last pins equity to a flat number mid-trade,
+// and because dist_drawdown / dist_to_daily_loss are both derived from
+// total_available, the entire risk display freezes with it.
+//
+// Higher number wins. Items absent from this map are priority 0, so fields
+// with only one source keep their previous last-wins behaviour.
+export const ITEM_PRIORITY: Record<string, number> = {
+  NetLiquidation: 3,
+  TotalAvailable: 2,
+  CashValue:      1,
+}
+
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────
 // (min_balance, starting, trailing_max, daily_loss_limit, safety_net_floor)
 const ACCOUNT_SIZE_PROFILES: [number, number, number, number, number][] = [
@@ -152,9 +171,23 @@ export interface AccountRow {
 }
 
 // ── COMPUTE TRADOVATE METRICS ────────────────────────────────────────────────
-// dist_drawdown and dist_to_daily_loss are ALWAYS computed server-side from
-// equity + profile — never trusted from NT8 (NT8 has sent 0 when equity is
-// clearly non-zero, which broke the dashboard).
+// NT8 is the source of truth. Any risk field NT8 reports directly is shown
+// exactly as the platform shows it — the dashboard must not disagree with the
+// number on the trading screen.
+//
+// Everything below is a FALLBACK, applied only to fields NT8 never sent, so an
+// account whose addon reports just equity still gets a usable risk readout
+// instead of zeros. Which fields NT8 owns is tracked in row.nt_fields.
+//
+// This deliberately reverses the previous behaviour, where these values were
+// always recomputed from a balance-guessed account profile and NT8's own
+// numbers were discarded. That guessing could disagree with the platform in
+// both directions, including showing a healthy buffer on an account that was
+// actually in trouble. Trade-off accepted when this changed: NT8 has been seen
+// reporting 0 for these fields while equity was clearly non-zero, and such a 0
+// will now display as a zero buffer (reads as a breach). A visible false alarm
+// that clears on the next update beats silently masking a real breach.
+//
 // onlyMissing only controls dollar_open (NT8 may send it directly).
 export function computeTradovateMetrics(
   row: AccountRow,
@@ -163,12 +196,16 @@ export function computeTradovateMetrics(
   const avail = row.total_available || 0
   if (avail <= 0) return
 
+  // Fields NT8 has reported directly — never recomputed below.
+  const nt = new Set(row.nt_fields || [])
+
   const p = detectAccountProfile(avail, row.account_id)
   const trail    = p.trailing_max
   const safety   = p.safety_net_floor
   const dllLimit = p.daily_loss_limit
 
-  // Peak balance only moves up
+  // Peak balance only moves up. Kept regardless of who owns the risk fields —
+  // it is the basis of the fallback threshold below.
   let peak = row.peak_balance || 0
   peak = peak <= 0 ? Math.max(p.starting_balance, avail) : Math.max(peak, avail)
   row.peak_balance = peak
@@ -180,10 +217,9 @@ export function computeTradovateMetrics(
   let threshold = Math.max(prevThreshold, peak - trail)
   threshold = Math.min(threshold, safety)
 
-  // Always authoritative — server computes these from equity + profile
-  row.drawdown_auto   = threshold
-  row.trailing_max    = trail
-  row.dist_drawdown   = avail - threshold
+  if (!nt.has('drawdown_auto')) row.drawdown_auto = threshold
+  if (!nt.has('trailing_max'))  row.trailing_max  = trail
+  if (!nt.has('dist_drawdown')) row.dist_drawdown = avail - threshold
 
   // Daily loss
   const today = new Date().toLocaleDateString('en-US', {
@@ -193,17 +229,22 @@ export function computeTradovateMetrics(
   if (row.day_date !== today) {
     row.day_date = today
     row.day_start_balance = avail
-    // New trading day — clear P&L carried over from previous session
-    row.realized_pnl  = 0
-    row.unrealized_pnl = 0
-    row.dollar_open   = 0
+    // New trading day — clear P&L carried over from the previous session, but
+    // only where NT8 is not the one reporting it. NT8 rolls its own P&L over at
+    // the session boundary, so zeroing a value it just sent would blank a live
+    // number for the rest of the day.
+    if (!nt.has('realized_pnl'))   row.realized_pnl   = 0
+    if (!nt.has('unrealized_pnl')) row.unrealized_pnl = 0
+    if (!nt.has('dollar_open'))    row.dollar_open    = 0
   }
-  const dayStart = row.day_start_balance || avail
-  const dailyLossUsed = Math.max(0, dayStart - avail)
-  row.dist_to_daily_loss = Math.max(0, dllLimit - dailyLossUsed)
+
+  if (!nt.has('dist_to_daily_loss')) {
+    const dayStart = row.day_start_balance || avail
+    const dailyLossUsed = Math.max(0, dayStart - avail)
+    row.dist_to_daily_loss = Math.max(0, dllLimit - dailyLossUsed)
+  }
 
   // dollar_open: respect NT8 if it sent it
-  const nt = new Set(row.nt_fields || [])
   if (!onlyMissing || !nt.has('dollar_open')) {
     row.dollar_open = row.unrealized_pnl || row.dollar_open || 0
   }

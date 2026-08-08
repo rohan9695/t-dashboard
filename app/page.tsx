@@ -7,10 +7,11 @@ import { AUTH_JWT_SECRET } from '@/lib/auth-secret'
 import { RealtimeProvider } from '@/components/RealtimeProvider'
 import { SummaryBar } from '@/components/SummaryBar'
 import { AccountsGrid } from '@/components/AccountsGrid'
-import { KillswitchBanner } from '@/components/KillswitchBanner'
 import { ToastProvider } from '@/components/ToastProvider'
 import { VisibilityProvider } from '@/components/VisibilityProvider'
 import { HeartbeatMonitor } from '@/components/HeartbeatMonitor'
+import { SyncBanner } from '@/components/SyncBanner'
+import { CopierBanner } from '@/components/CopierBanner'
 import { WebAuthnGate } from '@/components/WebAuthnGate'
 
 export const revalidate = 0
@@ -23,16 +24,29 @@ async function hasValidSession(): Promise<boolean> {
   return (await verifyJWT(token, AUTH_JWT_SECRET)) !== null
 }
 
+// Budget for the server-side read. Supabase being SLOW used to be worse than
+// Supabase being DOWN: an unbounded await meant the page blocked until it
+// answered. Past the budget we render with nothing and let the client hydrate
+// from its local cache and then from the network, so a degraded database costs
+// a couple of seconds rather than the whole page.
+const INITIAL_FETCH_TIMEOUT_MS = 2_000
+
 async function getInitialAccounts(): Promise<AccountRow[]> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), INITIAL_FETCH_TIMEOUT_MS)
   try {
     const supabase = createServiceClient()
     const { data } = await supabase
       .from('accounts')
       .select('*')
       .order('account_id')
+      .abortSignal(controller.signal)
     return (data ?? []) as AccountRow[]
   } catch {
+    // Timed out or unreachable — the client takes over from cache.
     return []
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -51,9 +65,11 @@ export default async function DashboardPage() {
         <ToastProvider>
           <VisibilityProvider>
             <div className="min-h-screen flex flex-col header-safe">
-              <KillswitchBanner />
+              <SyncBanner />
 
               <HeartbeatMonitor />
+
+              <CopierBanner />
 
               <main className="flex-1 px-3 py-4 space-y-4 max-w-5xl mx-auto w-full">
                 <SummaryBar />
