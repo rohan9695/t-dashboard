@@ -261,6 +261,44 @@ one malformed row blanked the entire page.
 Everything below is merged to `main` and DEPLOYED (Cloudflare + all three
 Supabase edge functions). Total Accounts reading 5 confirmed the new build live.
 
+### Findings from live `nt_fields` (2026-08-07)
+All 5 accounts report: `unrealized_pnl`, `total_available`, `realized_pnl`,
+`tradovate_margin_used`.
+
+- **Good:** `unrealized_pnl` IS reported, so `CopierBanner`'s "not copying"
+  detection works as built. No addon change needed for it.
+- **`drawdown_auto` and `dist_drawdown` are NOT reported by any account.** Every
+  drawdown figure on the dashboard is the fallback profile's guess, never NT8's.
+
+**Suspected false breaches — do not trust the breach flags until checked.**
+4 of 5 accounts read `breached`. Working backwards from `...091`
+(balance 47,946.54, `dist_drawdown` -1391.04) the stored threshold must be
+49,337.58, which with `trailing_max` 2000 implies a `peak_balance` of
+**51,337.58**. If those accounts never actually reached ~51.3k, the breaches are
+computed, not real.
+
+Two candidate causes, both worth checking before trusting any of it:
+
+1. **`peak_balance` was poisoned by the CashValue bug.** Until this session,
+   `CashValue` could overwrite `NetLiquidation` in `total_available`. CashValue
+   excludes open-position P&L, so during a LOSING trade it reads HIGHER than true
+   equity — and `peak_balance` only ever moves up and is persisted. Fixing the
+   ingestion does not undo an inflated peak already in the table. With a correct
+   peak of 50,000, only two accounts sit marginally negative (-53.46 and -0.78),
+   not four at -1391.
+2. **The trailing-max bucket may be wrong.** `detectAccountProfile` gives
+   `PAAPEX`/`LFE` 50k accounts 2500 and everything else 2000. If Apex actually
+   applies 2500 to these `APEX…` accounts too, every threshold is 500 too high
+   and pushes accounts toward false breach. Verify against Apex's own figures.
+
+**Next step:** compare the dashboard's DD Buffer against what Apex/NinjaTrader
+shows for the same account. If they disagree, reset `peak_balance` (set it to
+the true high-water mark, or to the current balance to let it re-accumulate) and
+confirm the trailing-max bucket. Better still, have the addon subscribe to
+`TrailingDrawdownValue` → `tradovate_trailing_drawdown`, which is Apex's real
+number and removes the guessing entirely — the addon already sends
+`tradovate_margin_used`, so it is reaching those fields already.
+
 ### Do first
 1. **Rotate `API_KEY`** — it was pasted into a chat transcript, so treat it as
    public. Whoever holds it can write fake account data, fire fake phone alerts,
