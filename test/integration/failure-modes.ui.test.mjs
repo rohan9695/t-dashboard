@@ -27,7 +27,7 @@ const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString()
 async function open(opts = {}) {
   const r = await openDashboard(browser, { appUrl: APP, secret: SECRET, ...opts })
   await r.page.goto(APP, { waitUntil: 'domcontentloaded' })
-  await waitForAccounts(r.page)
+  await waitForAccounts(r.page, { viewMode: opts.viewMode ?? 'card' })
   return r
 }
 
@@ -214,6 +214,9 @@ describe('the host is down (Cloudflare / Netlify)', { skip }, () => {
     await context.route('**/api/data**', (r) => r.abort())
     await context.route('**/rest/v1/**', (r) => r.abort())
     await page.reload({ waitUntil: 'domcontentloaded' })
+    // Net liq below is a list-view figure, so the reload has to land back in
+    // list view before it can be asserted on.
+    await waitForAccounts(page, { viewMode: 'list' })
     await until('degraded banner', async () => /saved data|not updating/i.test(await page.locator('body').innerText()),
       { timeout: 30_000 })
 
