@@ -332,8 +332,15 @@ number and removes the guessing entirely — the addon already sends
 - **NT8 addon changes** (not in this repo): POST one call per fill round to
   `/api/trade-event` with `accounts[]` + `total_accounts`; subscribe to
   `UnrealizedProfitLoss` if item 3 shows it missing.
-- **Netlify "never working"** — unverified. Most likely its env vars were never
-  set, so every request 500s. Check its deploy log and env panel.
+- **Netlify: builds paused, and worth deleting.** On 2026-08-07 twenty pushes to
+  main took the team account from 50% to 75% of its credits — Netlify rebuilds on
+  every push, and most of those pushes were tests, CI config and docs that
+  changed nothing it serves. `netlify.toml` now carries a `build.ignore` rule
+  that skips those; builds were also paused in the Netlify UI. Beyond the cost,
+  it has reportedly never worked (most likely its env vars were never set, so
+  every request 500s), and it is failover-only — it sees a batch only when BOTH
+  Cloudflare and the Supabase edge function fail, and if Supabase is down it
+  could not help anyway. Decide: fix it and verify, or delete the site.
 - **One writer, not three**: collapse the parallel fan-out to Supabase-primary
   with Cloudflare as sequential failover. Removes the `last_batch_ts` race guard
   and the hand-synced duplicate of `trading-logic.ts`. Needs an addon change.
