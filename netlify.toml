@@ -1,6 +1,23 @@
 [build]
   command = "npm run build"
 
+  # Only rebuild when something that actually ships has changed.
+  #
+  # Netlify rebuilds on every push by default. On 2026-08-07 twenty pushes to
+  # main — most of them tests, CI config and docs — burned through enough build
+  # minutes to take the team account from 50% to 75% of its credits. None of
+  # those builds changed a single byte of what Netlify serves.
+  #
+  # `ignore` runs before the build: exit 0 means SKIP, exit 1 means BUILD.
+  # git diff --quiet exits 0 when there are NO changes in those paths, which is
+  # exactly the skip condition, so it can be used directly.
+  #
+  # Deliberately NOT in this list (i.e. these do trigger a build): app/,
+  # components/, lib/, public/, middleware.ts, next.config, package.json,
+  # netlify.toml itself. If a path is not matched here it builds, so the safe
+  # failure mode is an unnecessary build rather than a stale deploy.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)test' ':(exclude).github' ':(exclude)docs' ':(exclude)scripts' ':(exclude)supabase/functions' ':(exclude)*.md'"
+
 [build.environment]
   NODE_VERSION = "20"
 
