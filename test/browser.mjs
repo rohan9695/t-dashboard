@@ -73,15 +73,19 @@ export async function until(label, check, { timeout = 20_000, interval = 250 } =
   throw new Error(`timed out after ${timeout}ms waiting for: ${label}`)
 }
 
-/** Waits until the dashboard has painted real account rows. */
+/** Waits until the dashboard has painted real account rows AND their figures. */
 export async function waitForAccounts(page, { timeout = 25_000 } = {}) {
   return until(
-    'account rows to render',
+    'account rows and their figures to render',
     async () => {
       const text = await page.locator('body').innerText()
-      // Any account id, or an explicit "nothing to show" state — both mean the
-      // first load has resolved and it is safe to assert.
-      return /APEX|PAAPEX/.test(text) || /No accounts connected/.test(text)
+      // "Nothing to show" is a settled state too.
+      if (/No accounts connected/.test(text)) return true
+      // An account id alone is not enough: the id can paint from the server
+      // render while the figures are still a poll behind, which had a test
+      // assert on a balance that had not arrived yet. Require a formatted
+      // currency value as well, so the row is genuinely complete.
+      return /APEX|PAAPEX/.test(text) && /\$[\d,]+\.\d{2}/.test(text)
     },
     { timeout },
   )
