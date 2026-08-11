@@ -177,3 +177,30 @@ describe('emptyAccount', () => {
     assert.deepEqual(row.nt_fields, [])
   })
 })
+
+describe('realized P&L sources', () => {
+  test('net RealizedProfitLoss beats gross regardless of arrival order', () => {
+    for (const order of [
+      { GrossRealizedProfitLoss: 120, RealizedProfitLoss: 98 },
+      { RealizedProfitLoss: 98, GrossRealizedProfitLoss: 120 },
+    ]) {
+      const field = {}
+      const applied = {}
+      for (const [item, value] of Object.entries(order)) {
+        const f = ITEM_MAP[item]
+        const p = ITEM_PRIORITY[item] ?? 0
+        if (f in applied && applied[f] > p) continue
+        applied[f] = p
+        field[f] = value
+      }
+      assert.equal(field.realized_pnl, 98, `net wins for ${JSON.stringify(order)}`)
+    }
+  })
+
+  test('gross is used when the net figure never arrives', () => {
+    // The whole point: a connection that only sends the gross figure must show
+    // a number, not the $0.00 the daily rollover would otherwise leave behind.
+    assert.equal(ITEM_MAP.GrossRealizedProfitLoss, 'realized_pnl')
+    assert.ok((ITEM_PRIORITY.GrossRealizedProfitLoss ?? 0) < (ITEM_PRIORITY.RealizedProfitLoss ?? 0))
+  })
+})

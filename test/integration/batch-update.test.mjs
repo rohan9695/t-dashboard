@@ -47,6 +47,55 @@ describe('/api/batch-update', () => {
     assert.equal(row.hidden, false)
   })
 
+  test('a clock that ran ahead does not freeze ingestion forever', async () => {
+    // last_batch_ts is the NT8 MACHINE clock, not the server's. If that clock
+    // is briefly ahead — or corrects backwards after an NTP sync — the stored
+    // value sits in the future and every later batch is refused. Silently:
+    // HTTP 200, processed:0, nothing logged anywhere the trader can see. The
+    // dashboard freezes and every other indicator still reads healthy.
+    const oneHourAhead = Date.now() + 60 * 60_000
+    await seed(account('APEX1', 50000, { last_batch_ts: oneHourAhead }))
+
+    const res = await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50750.25 }, _ts: Date.now() })
+    assert.equal(res.status, 200)
+
+    const [row] = await storedAccounts()
+    assert.equal(row.total_available, 50750.25, 'a corrected clock must not lock the account out')
+  })
+
+  test('item names the dashboard does not understand are named in the reply', async () => {
+    // Unmapped items were dropped without a trace, which is how a gross-only
+    // realized P&L feed went unnoticed: the value arrived every second and
+    // vanished on arrival. Naming them costs nothing and makes one curl enough
+    // to see what NT8 is really sending.
+    await seed(account('APEX1', 50000))
+    const res = await postJson('/api/batch-update', {
+      APEX1: { NetLiquidation: 50100, SomeUnmappedApexField: 42 }, _ts: 2000,
+    })
+    const body = await res.json()
+    assert.deepEqual(body.unknown, ['SomeUnmappedApexField'])
+  })
+
+  test('a gross-only P&L feed still shows realized P&L', async () => {
+    // day_date in the past forces the daily-rollover branch, which is exactly
+    // where a realized_pnl NT8 does not own gets zeroed for the whole session.
+    await seed(account('APEX1', 50000, { nt_fields: ['total_available'], realized_pnl: 0, day_date: '01/01/2020' }))
+    await postJson('/api/batch-update', {
+      APEX1: { NetLiquidation: 50088.64, GrossRealizedProfitLoss: 88.64 }, _ts: 2000,
+    })
+    const [row] = await storedAccounts()
+    assert.equal(row.realized_pnl, 88.64, 'gross is better than a permanent $0.00')
+  })
+
+  test('the net P&L figure still wins when both arrive', async () => {
+    await seed(account('APEX1', 50000))
+    await postJson('/api/batch-update', {
+      APEX1: { GrossRealizedProfitLoss: 120, RealizedProfitLoss: 98 }, _ts: 2000,
+    })
+    const [row] = await storedAccounts()
+    assert.equal(row.realized_pnl, 98, 'net beats gross regardless of payload order')
+  })
+
   test('sim accounts are ignored', async () => {
     await seed(account('APEXREAL', 50000))
     await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })
