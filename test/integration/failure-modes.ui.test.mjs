@@ -147,6 +147,38 @@ describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
     await context.close()
   })
 
+  test('accounts that vanished from the list are still counted as missing', async () => {
+    // Four of five accounts hidden — sync-accounts stopped seeing them in NT8's
+    // live list. The dashboard used to show "TOTAL ACCOUNTS 1", a green dot and
+    // no banner at all: the readiness check filtered hidden rows out before
+    // counting, so it could not see its own case.
+    await seed(account(LEADER, 50088.64, { replikanto_role: 'leader', dollar_open: 0 }))
+    for (const id of FOLLOWERS) {
+      await seed(account(id, 49000, { replikanto_role: 'follower', dollar_open: 0, hidden: true }))
+    }
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await until('readiness warning despite the accounts being hidden',
+      async () => /not reporting/i.test(await page.locator('body').innerText()))
+    const text = await page.locator('body').innerText()
+
+    assert.match(text, /4 accounts not reporting/i, 'counts the hidden accounts')
+    assert.match(text, /would reach 1 of 5/i, 'denominator includes what vanished')
+    await context.close()
+  })
+
+  test('a long-retired hidden account does not nag forever', async () => {
+    // hidden rows are never hard-deleted, so an account genuinely pulled from
+    // NT8 must eventually stop counting as missing or the banner is permanent.
+    await seedDesk({ leaderOpen: 0, followerOpen: 0 })
+    await seed(account('APEXRETIRED', 49000, { hidden: true, last_update: minsAgo(60 * 24 * 3) }))
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    assert.doesNotMatch(await page.locator('body').innerText(), /not reporting/i)
+    await context.close()
+  })
+
   test('a quiet desk is NOT mistaken for a dropped account', async () => {
     // Everything equally old — NT8 simply has nothing to say between trades.
     // An absolute staleness check would cry wolf here; a relative one must not.

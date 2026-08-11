@@ -37,6 +37,10 @@ const OFFLINE_MS = 30 * 60_000
 // flushes every 3s in-window and every 30s outside it, so 3 minutes is several
 // missed batches — comfortably past normal jitter.
 const LAG_MS = 3 * 60_000
+// A hidden account last seen within this window counts as MISSING; older than
+// this and it is treated as retired. hidden rows are never hard-deleted, so
+// without a bound an account pulled from NT8 months ago would warn forever.
+const RETIRED_MS = 12 * 60 * 60_000
 
 export function CopierBanner() {
   const { accounts } = useRealtime()
@@ -50,18 +54,20 @@ export function CopierBanner() {
   }, [])
 
   const visible = accounts.filter((a) => !a.hidden)
-  if (visible.length < 2) return null // nothing to copy between
 
   const leader = visible.find((a) => a.replikanto_role === 'leader')
   const now = Date.now()
   const stamp = (a: { last_update: string }) => new Date(a.last_update).getTime()
 
   // ── 1. Not copying ────────────────────────────────────────────────────────
+  // Needs at least two visible accounts — there is nothing to copy between
+  // otherwise. The readiness check below deliberately does NOT share this
+  // guard; see the note there.
   const leaderOpen = leader ? (leader.dollar_open ?? 0) !== 0 : false
   if (!leaderOpen) openedAt.current = null
   else if (openedAt.current === null) openedAt.current = now
 
-  if (leader && leaderOpen && openedAt.current !== null && now - openedAt.current >= GRACE_MS) {
+  if (visible.length >= 2 && leader && leaderOpen && openedAt.current !== null && now - openedAt.current >= GRACE_MS) {
     const online = visible.filter(
       (a) => a.account_id !== leader.account_id && now - stamp(a) <= OFFLINE_MS,
     )
@@ -80,16 +86,30 @@ export function CopierBanner() {
   const newest = visible.reduce((max, a) => Math.max(max, stamp(a) || 0), 0)
   if (newest === 0) return null
 
+  // A hidden account is one sync-accounts stopped seeing in NT8's live list —
+  // which is exactly what this warning exists to report. Filtering hidden rows
+  // out before counting made the check blind to its own case: the accounts
+  // that vanished were removed from the comparison, and if only one was left
+  // the old `visible.length < 2` guard disabled the banner outright. The
+  // dashboard could show a confident green "1" with four accounts
+  // unaccounted for. Missing is worse than late, not exempt.
+  //
+  // Note this is about accounts NT8 stopped listing, whatever the reason.
+  // Deliberately closing or losing an account looks identical here, which is
+  // why RETIRED_MS exists — see above.
+  const missing = accounts.filter((a) => a.hidden && newest - stamp(a) <= RETIRED_MS)
   const laggards = visible.filter((a) => newest - stamp(a) > LAG_MS)
-  if (laggards.length === 0) return null
+  const gone = [...missing, ...laggards]
+  if (gone.length === 0) return null
 
-  const reachable = visible.length - laggards.length
-  const names = laggards.map((a) => a.account_id.slice(-4)).join(', ')
+  const total = visible.length + missing.length
+  const reachable = total - gone.length
+  const names = gone.map((a) => a.account_id.slice(-4)).join(', ')
 
   return (
     <Banner tone="warn" icon="⚠️">
-      {laggards.length} account{laggards.length === 1 ? '' : 's'} not reporting (…{names}) — a
-      trade now would reach {reachable} of {visible.length}.
+      {gone.length} account{gone.length === 1 ? '' : 's'} not reporting (…{names}) — a
+      trade now would reach {reachable} of {total}.
     </Banner>
   )
 }
