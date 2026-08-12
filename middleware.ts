@@ -29,6 +29,11 @@ const ALERT_EMAIL      = process.env.ALERT_EMAIL ?? ''
 const OPEN_PREFIXES = [
   '/api/auth/',
   '/api/set-leader', // dashboard-only control, matches the dashboard's current unauthenticated posture
+  // Must stay open: it reports whether THIS host is configured, and on a host
+  // where API_KEY itself is unset every gated route is unreachable — so gating
+  // it would make it useless exactly when it is needed. Returns booleans only,
+  // never a secret. See app/api/health/route.ts.
+  '/api/health',
 ]
 
 function isOpen(pathname: string): boolean {

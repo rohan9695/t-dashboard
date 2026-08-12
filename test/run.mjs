@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import net from 'node:net'
 import { networkInterfaces } from 'node:os'
 
 const DB_PORT   = 54321
@@ -53,12 +54,51 @@ const children = []
 let shuttingDown = false
 
 function start(name, cmd, args, opts = {}) {
-  const child = spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], ...opts })
+  // detached puts the child in its own process GROUP, which is what makes a
+  // complete teardown possible below. `npm run start` spawns next-server as a
+  // GRANDCHILD, so killing the npm process alone left next-server alive and
+  // still holding port 3100 after every run — the source of every stale-port
+  // failure in this sandbox.
+  const child = spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...opts })
   children.push({ name, child })
   const tag = `[${name}]`
   child.stdout.on('data', (d) => process.env.TEST_VERBOSE && process.stdout.write(`${tag} ${d}`))
   child.stderr.on('data', (d) => process.stderr.write(`${tag} ${d}`))
   return child
+}
+
+/**
+ * Refuses to start when something already owns a sandbox port.
+ *
+ * Without this the run limps on instead of stopping: the child prints
+ * EADDRINUSE and dies, waitFor() is satisfied by the STALE server already
+ * listening there, and the whole suite then runs against a previous build.
+ * That produced 48 failures across unrelated suites with the real cause —
+ * one line — buried in the middle of the log. A suite that reports the wrong
+ * answer is worse than one that refuses to run.
+ */
+async function assertPortFree(label, port) {
+  // A raw TCP connect, NOT an HTTP request. The first version of this check
+  // used fetch(), which cannot see a socket that is bound but not answering —
+  // a half-dead next-server holds the port, the request times out, the catch
+  // reports "free", and the bind fails anyway. A check that silently passes
+  // when it cannot measure is worse than no check, because it is believed.
+  const held = await new Promise((resolve) => {
+    const sock = net.connect({ host: '127.0.0.1', port })
+    const done = (result) => { sock.destroy(); resolve(result) }
+    sock.setTimeout(1_000)
+    sock.once('connect', () => done(true))
+    sock.once('timeout', () => done(true))  // listening but not talking still owns the port
+    sock.once('error', () => done(false))   // ECONNREFUSED — genuinely free
+  })
+  if (!held) return
+
+  throw new Error(
+    `${label} port ${port} is already in use — a previous sandbox is probably still running.\n` +
+    `Find and stop it with:  lsof -ti tcp:${port} | xargs kill -9\n` +
+    `If lsof reports nothing, the holder may be a half-dead next-server; find it with:\n` +
+    `  for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline | grep -q next-server && echo \${d#/proc/}; done`,
+  )
 }
 
 async function waitFor(label, url, timeoutMs = 45_000) {
@@ -77,6 +117,8 @@ function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   for (const { child } of children) {
+    // Negative pid = the whole process group, so grandchildren die too.
+    try { process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ }
     try { child.kill('SIGKILL') } catch { /* already gone */ }
   }
 }
@@ -92,6 +134,12 @@ async function run(cmd, args, opts = {}) {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 console.log('Starting sandbox…')
+
+// Check every port before spawning anything, so a stale sandbox is reported
+// once and clearly rather than as a wall of downstream failures.
+await assertPortFree('mock supabase', DB_PORT)
+await assertPortFree('mock ntfy', NTFY_PORT)
+await assertPortFree('app', APP_PORT)
 
 start('mock-supabase', process.execPath, ['test/mocks/supabase.mjs', String(DB_PORT)])
 start('mock-ntfy',     process.execPath, ['test/mocks/ntfy.mjs', String(NTFY_PORT)])
