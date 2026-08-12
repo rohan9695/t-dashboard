@@ -14,7 +14,8 @@
     "test": "node test/run.mjs",
     "test:unit": "node --test \"test/unit/*.test.mjs\"",
     "test:quick": "node test/run.mjs --skip-build",
-    "sandbox": "node test/run.mjs --sandbox"
+    "sandbox": "node test/run.mjs --sandbox",
+    "verify": "node scripts/verify-hosts.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^9.0.1",
