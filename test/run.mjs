@@ -61,6 +61,28 @@ function start(name, cmd, args, opts = {}) {
   return child
 }
 
+/**
+ * Refuses to start when something already owns a sandbox port.
+ *
+ * Without this the run limps on instead of stopping: the child prints
+ * EADDRINUSE and dies, waitFor() is satisfied by the STALE server already
+ * listening there, and the whole suite then runs against a previous build.
+ * That produced 48 failures across unrelated suites with the real cause —
+ * one line — buried in the middle of the log. A suite that reports the wrong
+ * answer is worse than one that refuses to run.
+ */
+async function assertPortFree(label, port) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1_000) })
+  } catch {
+    return // nothing listening, which is what we want
+  }
+  throw new Error(
+    `${label} port ${port} is already in use — a previous sandbox is probably still running.\n` +
+    `Find and stop it with:  lsof -ti tcp:${port} | xargs kill`,
+  )
+}
+
 async function waitFor(label, url, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -92,6 +114,12 @@ async function run(cmd, args, opts = {}) {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 console.log('Starting sandbox…')
+
+// Check every port before spawning anything, so a stale sandbox is reported
+// once and clearly rather than as a wall of downstream failures.
+await assertPortFree('mock supabase', DB_PORT)
+await assertPortFree('mock ntfy', NTFY_PORT)
+await assertPortFree('app', APP_PORT)
 
 start('mock-supabase', process.execPath, ['test/mocks/supabase.mjs', String(DB_PORT)])
 start('mock-ntfy',     process.execPath, ['test/mocks/ntfy.mjs', String(NTFY_PORT)])
