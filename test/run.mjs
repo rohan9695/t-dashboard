@@ -54,7 +54,12 @@ const children = []
 let shuttingDown = false
 
 function start(name, cmd, args, opts = {}) {
-  const child = spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], ...opts })
+  // detached puts the child in its own process GROUP, which is what makes a
+  // complete teardown possible below. `npm run start` spawns next-server as a
+  // GRANDCHILD, so killing the npm process alone left next-server alive and
+  // still holding port 3100 after every run — the source of every stale-port
+  // failure in this sandbox.
+  const child = spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...opts })
   children.push({ name, child })
   const tag = `[${name}]`
   child.stdout.on('data', (d) => process.env.TEST_VERBOSE && process.stdout.write(`${tag} ${d}`))
@@ -112,6 +117,8 @@ function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   for (const { child } of children) {
+    // Negative pid = the whole process group, so grandchildren die too.
+    try { process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ }
     try { child.kill('SIGKILL') } catch { /* already gone */ }
   }
 }

@@ -26,9 +26,16 @@ describe('/api/health', () => {
     ]) {
       assert.equal(typeof body.config[name], 'boolean', `${name} must be a boolean`)
     }
-    // Nothing in the response may resemble a credential.
+    // Check the actual VALUES never appear, rather than pattern-matching for
+    // secret-looking text: the first version of this matched /service_role/i
+    // against the variable NAME in the config object and failed on a correct
+    // response. These are the values test/run.mjs configures the sandbox with,
+    // so if any leaks it shows up here verbatim.
     const serialised = JSON.stringify(body)
-    assert.doesNotMatch(serialised, /eyJ|service_role|sk-|supabase\.co/i, 'no secret material in the reply')
+    for (const value of ['test-service-key', 'test-api-key', 'test-anon-key', 'test-topic']) {
+      assert.ok(!serialised.includes(value), `leaked the value of a configured variable: ${value}`)
+    }
+    assert.doesNotMatch(serialised, /eyJ[A-Za-z0-9_-]{10,}/, 'no JWT-shaped material')
   })
 
   test('a configured host reports ok with a live database round trip', async () => {
