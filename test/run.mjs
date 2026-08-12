@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import net from 'node:net'
 import { networkInterfaces } from 'node:os'
 
 const DB_PORT   = 54321
@@ -72,14 +73,26 @@ function start(name, cmd, args, opts = {}) {
  * answer is worse than one that refuses to run.
  */
 async function assertPortFree(label, port) {
-  try {
-    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1_000) })
-  } catch {
-    return // nothing listening, which is what we want
-  }
+  // A raw TCP connect, NOT an HTTP request. The first version of this check
+  // used fetch(), which cannot see a socket that is bound but not answering —
+  // a half-dead next-server holds the port, the request times out, the catch
+  // reports "free", and the bind fails anyway. A check that silently passes
+  // when it cannot measure is worse than no check, because it is believed.
+  const held = await new Promise((resolve) => {
+    const sock = net.connect({ host: '127.0.0.1', port })
+    const done = (result) => { sock.destroy(); resolve(result) }
+    sock.setTimeout(1_000)
+    sock.once('connect', () => done(true))
+    sock.once('timeout', () => done(true))  // listening but not talking still owns the port
+    sock.once('error', () => done(false))   // ECONNREFUSED — genuinely free
+  })
+  if (!held) return
+
   throw new Error(
     `${label} port ${port} is already in use — a previous sandbox is probably still running.\n` +
-    `Find and stop it with:  lsof -ti tcp:${port} | xargs kill`,
+    `Find and stop it with:  lsof -ti tcp:${port} | xargs kill -9\n` +
+    `If lsof reports nothing, the holder may be a half-dead next-server; find it with:\n` +
+    `  for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline | grep -q next-server && echo \${d#/proc/}; done`,
   )
 }
 
