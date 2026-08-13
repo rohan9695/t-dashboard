@@ -214,6 +214,39 @@ describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
   })
 })
 
+describe('stale figures while a position is open', { skip }, () => {
+  test('a four-minute-old P&L is NOT presented as live', async () => {
+    // The real case: MNQ long, dashboard showing -$86.00 while the platform
+    // showed +$82.50. The figure was a genuine reading from ~4 minutes earlier,
+    // and the dot was green because the flat threshold is 10 minutes.
+    await seed(account(LEADER, 50159.42, {
+      replikanto_role: 'leader', dollar_open: -86, unrealized_pnl: -86,
+      last_update: minsAgo(4),
+    }))
+    await seed(account(FOLLOWERS[0], 49912.98, {
+      replikanto_role: 'follower', dollar_open: -91.5, unrealized_pnl: -91.5,
+      last_update: minsAgo(4),
+    }))
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await until('no account still claims to be live',
+      async () => (await page.locator('span.bg-emerald-400').count()) === 0)
+    assert.equal(await page.locator('span.bg-emerald-400').count(), 0,
+      'a moving P&L four minutes old must not read as live')
+    await context.close()
+  })
+
+  test('the same four minutes is fine when flat', async () => {
+    // Between trades NT8 genuinely goes quiet; flagging that would be noise.
+    await seedDesk({ leaderOpen: 0, followerOpen: 0, lastUpdate: minsAgo(4) })
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    assert.ok((await page.locator('span.bg-emerald-400').count()) > 0,
+      'a flat desk four minutes quiet is normal and must stay green')
+    await context.close()
+  })
+})
+
 describe('dashboard claiming to be online when it is not', { skip }, () => {
   test('freshness tracks NT8, not the host answering', async () => {
     // The host is up and serving happily; NT8 stopped 45 minutes ago. The

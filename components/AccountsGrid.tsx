@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
 import { AccountRow, MobileAccountCard, MobileListRow } from './AccountCard'
+import { offlineThresholdMs } from '@/lib/freshness'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 import { RefreshButton } from './RefreshButton'
 
-const OFFLINE_THRESHOLD_MS = 30 * 60_000 // 30 min — between trades NT8 sends nothing
-
-function isOffline(row: { last_update: string }): boolean {
-  return Date.now() - new Date(row.last_update).getTime() > OFFLINE_THRESHOLD_MS
+// Offline means "stopped reporting", and how long that takes to be true depends
+// on whether a position is open — see the reasoning on the thresholds in
+// AccountCard. Imported rather than redefined: the same number living in two
+// files is how they end up disagreeing.
+function isOffline(row: { last_update: string; dollar_open?: number | null; unrealized_pnl?: number | null }): boolean {
+  return Date.now() - new Date(row.last_update).getTime() > offlineThresholdMs(row)
 }
 
 const COL_COUNT = ALL_COLUMNS.length
