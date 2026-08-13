@@ -55,7 +55,13 @@ async function checkApp(host) {
         detail: `HTTP ${status}, no JSON — /api/health not deployed, or something in between answered`,
       }
     }
-    if (body.ok) return { ...host, ok: true, status, detail: `configured, database ${body.database}` }
+    if (body.ok) {
+      // Surface whether notifications are on. Unset is a valid choice, so it
+      // must not fail the host — but silently-off is exactly the state that
+      // had fills recording with no phone alert for months.
+      const notify = body.config?.NTFY_TOPIC ? 'notifications on' : 'notifications OFF'
+      return { ...host, ok: true, status, detail: `configured, database ${body.database}, ${notify}` }
+    }
 
     const missing = (body.missing ?? []).join(', ')
     const detail = missing

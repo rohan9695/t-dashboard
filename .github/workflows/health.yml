@@ -22,6 +22,11 @@ on:
     # to '45 13 * * 1-5'. Early is harmless; late would defeat the purpose.
     - cron: '45 12 * * 1-5'
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: 'Send a test push even if every host is healthy'
+        type: boolean
+        default: false
 
 concurrency:
   group: host-health
@@ -57,6 +62,27 @@ jobs:
             cat verify.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Alerting you have never seen fire is alerting you do not trust. This
+      # exercises the exact path a real failure uses — same secret, same
+      # server, same headers — without waiting for something to break.
+      - name: Send a test push
+        if: inputs.test_alert
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER || 'https://ntfy.sh' }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "::error::NTFY_TOPIC secret is not set — nothing to test."
+            exit 1
+          fi
+          curl -sS --fail --max-time 10 \
+            -H "Title: ntfy test - alerting works" \
+            -H "Priority: default" \
+            -H "Tags: white_check_mark" \
+            -d "If you can read this, the morning host check can reach your phone." \
+            "${NTFY_SERVER%/}/$NTFY_TOPIC"
+          echo "Test push sent."
 
       - name: Alert the phone, then fail
         if: steps.check.outcome == 'failure'
