@@ -18,8 +18,10 @@ const HOSTS = [
 ]
 
 // The edge function has no /api/health — it is a single function, not the app.
-// A 401 from it is a HEALTHY answer: it means the function is deployed and
-// checking keys. Anything else means it is not there.
+// It is probed with a GET, so a deployed function answers either 401 (it read
+// the missing key) or 405 (it only accepts POST). BOTH prove it is there and
+// responding; only 404 or a network error mean it is not. Accepting just 401
+// reported a perfectly healthy function as down.
 const EDGE = {
   name: 'Supabase edge fn',
   url: 'https://gvbtnsktudmgmpamkhnl.supabase.co/functions/v1/batch-update',
@@ -71,9 +73,11 @@ async function checkEdge() {
     // No key deliberately: a deployed function answers 401, which is the proof
     // we want. Sending a real key would also write data, which a check must not.
     const { status } = await fetchJson(EDGE.url)
-    if (status === 401) return { ...EDGE, ok: true, status, detail: 'deployed, rejecting unauthenticated calls' }
+    if (status === 401 || status === 405) {
+      return { ...EDGE, ok: true, status, detail: `deployed (HTTP ${status} to an unauthenticated GET)` }
+    }
     if (status === 404) return { ...EDGE, ok: false, status, detail: 'HTTP 404 — function not deployed' }
-    return { ...EDGE, ok: false, status, detail: `HTTP ${status} — expected 401; a proxy may have answered instead` }
+    return { ...EDGE, ok: false, status, detail: `HTTP ${status} — expected 401 or 405; a proxy may have answered instead` }
   } catch (e) {
     const why = e.name === 'AbortError' ? `no response in ${TIMEOUT_MS}ms` : e.message
     return { ...EDGE, ok: false, status: 0, detail: `unreachable — ${why}` }
