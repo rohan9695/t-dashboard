@@ -1,0 +1,81 @@
+name: Host health
+
+# Checks every host is deployed AND configured, before the session starts.
+#
+# This is the piece that needs no computer and no Claude session: a broken
+# deploy, an expired key or a wiped env var gets found at 8:45, not at 9:47
+# with a position open. It stays quiet when everything is fine — a monitor that
+# pings daily gets muted, and a muted monitor is worse than none.
+#
+# Runs on a GitHub runner, which (unlike a dev container behind a proxy) can
+# actually reach Cloudflare, Netlify and Supabase.
+#
+# Optional secret:
+#   NTFY_TOPIC   same topic the dashboard uses, so failures reach your phone.
+#                Without it the job just fails and GitHub emails you instead.
+
+on:
+  schedule:
+    # 12:45 UTC = 08:45 US Eastern during EDT, weekdays — about 45 minutes
+    # before the 9:30 open. Cron is always UTC and does NOT follow daylight
+    # saving, so from November this lands at 07:45 Eastern until it is changed
+    # to '45 13 * * 1-5'. Early is harmless; late would defeat the purpose.
+    - cron: '45 12 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: host-health
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No npm ci: verify-hosts.mjs deliberately uses only built-in fetch, so
+      # this stays a few seconds rather than a full install.
+      - name: Check every host
+        id: check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node scripts/verify-hosts.mjs 2>&1 | tee verify.txt
+
+      - name: Publish the result
+        run: |
+          {
+            echo '### Host health'
+            echo ''
+            echo '```'
+            cat verify.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Alert the phone, then fail
+        if: steps.check.outcome == 'failure'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER || 'https://ntfy.sh' }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "::warning::NTFY_TOPIC secret not set — no phone alert sent. Failing so GitHub emails instead."
+          else
+            # ntfy carries title/priority in HTTP headers, which must stay
+            # ASCII — the detail goes in the body.
+            curl -sS --max-time 10 \
+              -H "Title: Dashboard host check FAILED" \
+              -H "Priority: high" \
+              -H "Tags: warning" \
+              --data-binary @verify.txt \
+              "${NTFY_SERVER%/}/$NTFY_TOPIC" || echo "::warning::ntfy push failed"
+          fi
+          # Fail the run regardless, so the red mark is in the history even if
+          # the notification did not get through.
+          exit 1
