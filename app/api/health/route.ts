@@ -23,27 +23,38 @@ import { createServiceClient } from '@/lib/supabase/server'
 // "misconfigured" into an ambiguous timeout.
 const DB_TIMEOUT_MS = 2_000
 
-// NTFY_TOPIC is intentionally absent — unset means notifications off, which is
-// a valid configuration, not a fault. It is still reported below so the
-// difference between "off on purpose" and "forgotten" is visible.
+// Required means "the host cannot serve without it", not "we would like it set".
+// Only these two have no fallback: an absent service key builds a client that
+// 401s on every query, and an absent API_KEY rejects every NT8 batch.
 const REQUIRED = [
-  'NEXT_PUBLIC_SUPABASE_URL',
-  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
   'API_KEY',
 ] as const
 
+// Reported, never failed on. The NEXT_PUBLIC_* pair has hardcoded fallbacks in
+// lib/supabase/{client,server}.ts, so a host without them still works — and
+// NEXT_PUBLIC_* values are inlined into the bundle at BUILD time anyway, so
+// their absence at runtime says little either way. Flagging them turned a
+// perfectly healthy Cloudflare deploy into a red alert, which is how a monitor
+// teaches you to ignore it. NTFY_TOPIC is the same: unset means notifications
+// off, a valid choice rather than a fault.
+const REPORTED = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'NTFY_TOPIC',
+] as const
+
 export async function GET() {
   const config: Record<string, boolean> = {}
-  for (const name of REQUIRED) config[name] = Boolean(process.env[name])
-  config.NTFY_TOPIC = Boolean(process.env.NTFY_TOPIC)
+  for (const name of [...REQUIRED, ...REPORTED]) config[name] = Boolean(process.env[name])
 
   const missing = REQUIRED.filter((name) => !process.env[name])
 
   // A live round trip, because a present key can still be the wrong key — the
   // failure this is meant to catch looks identical either way from outside.
+  // The URL resolves through its fallback when unset, so this runs regardless.
   let database: 'ok' | 'denied' | 'unreachable' | 'timeout' | 'skipped' = 'skipped'
-  if (!missing.includes('SUPABASE_SERVICE_ROLE_KEY') && !missing.includes('NEXT_PUBLIC_SUPABASE_URL')) {
+  if (!missing.includes('SUPABASE_SERVICE_ROLE_KEY')) {
     try {
       const probe = createServiceClient()
         .from('accounts')

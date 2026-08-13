@@ -38,6 +38,19 @@ describe('/api/health', () => {
     assert.doesNotMatch(serialised, /eyJ[A-Za-z0-9_-]{10,}/, 'no JWT-shaped material')
   })
 
+  test('a NEXT_PUBLIC value with a code fallback does not fail the host', async () => {
+    // These are inlined at build time and have hardcoded fallbacks in
+    // lib/supabase/{client,server}.ts, so a host without them still serves.
+    // Treating them as required reported a healthy Cloudflare deploy as broken
+    // — a monitor that cries wolf is one you learn to ignore.
+    const body = await (await fetch(`${APP}/api/health`)).json()
+    assert.ok(!body.missing.includes('NEXT_PUBLIC_SUPABASE_URL'))
+    assert.ok(!body.missing.includes('NEXT_PUBLIC_SUPABASE_ANON_KEY'))
+    assert.ok(!body.missing.includes('NTFY_TOPIC'), 'notifications off is a choice, not a fault')
+    // Still reported, so "off on purpose" stays distinguishable from "forgotten".
+    assert.equal(typeof body.config.NEXT_PUBLIC_SUPABASE_URL, 'boolean')
+  })
+
   test('a configured host reports ok with a live database round trip', async () => {
     // The sandbox sets every variable, so this is the healthy path.
     const res = await fetch(`${APP}/api/health`)
