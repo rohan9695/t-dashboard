@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
@@ -559,9 +560,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 lastReportedStatus = result;
                 // Printed on CHANGE only — this runs every batch, and a line per
-                // batch would bury everything else in the Output window.
+                // batch would bury everything else in the Output window. Static
+                // context (called from SendBatchAsync), so this uses the
+                // Output.Process utility rather than the instance Print() method
+                // used elsewhere in this file.
                 NinjaTrader.Code.Output.Process("AccountMonitor: Replikanto status -> " + result,
-                    NinjaTrader.Cbi.PrintTo.OutputTab1);
+                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
             }
             return result;
         }
