@@ -494,11 +494,181 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
         }
 
+        // ── REPLIKANTO STATUS ───────────────────────────────────────────────────
+        // Replikanto keeps no public static handle on its state, so the live
+        // objects are reached through a private static field on
+        // ReplikantoFramework whose type is ReplikantoFramework itself — the
+        // singleton — and then by walking its fields.
+        //
+        // Everything is matched by TYPE NAME, never by field name. Replikanto
+        // obfuscates member names (they are unprintable combining characters and
+        // will change on every release), but the public type names — Node,
+        // InternetNode, SlaveAccount — and the public properties on them are
+        // stable. Searching by type is what makes this survive an update.
+        //
+        // Reports "unknown" whenever anything is missing. A copier status that
+        // silently reads "connected" because reflection quietly failed would be
+        // worse than no status at all, so every failure path lands on unknown.
+        private const string FrameworkType = "NinjaTrader.NinjaScript.AddOns.FlowBots.ReplikantoFramework";
+
+        // Cached: the singleton never changes for the life of the process, and
+        // this runs on every batch.
+        private static object frameworkInstance;
+        private static bool   frameworkLookedUp;
+
+        private static object GetFramework()
+        {
+            if (frameworkLookedUp) return frameworkInstance;
+            frameworkLookedUp = true;
+            try
+            {
+                Type fw = null;
+                foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    Type[] ts;
+                    try { ts = a.GetTypes(); }
+                    catch (ReflectionTypeLoadException ex) { ts = ex.Types ?? new Type[0]; }
+                    catch { continue; }
+                    foreach (Type t in ts) if (t != null && t.FullName == FrameworkType) { fw = t; break; }
+                    if (fw != null) break;
+                }
+                if (fw == null) return null;
+
+                foreach (FieldInfo f in fw.GetFields(BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    if (f.FieldType != fw) continue;
+                    object v = f.GetValue(null);
+                    if (v != null) { frameworkInstance = v; break; }
+                }
+            }
+            catch { /* stays null -> unknown */ }
+            return frameworkInstance;
+        }
+
+        /// <summary>
+        /// "online" | "off" | "away" | "unknown". Derived from the Replikanto
+        /// node objects: online if ANY node reports Online, because one live node
+        /// is what copying actually needs.
+        /// </summary>
+        private static string lastReportedStatus;
+
+        private static string ReadReplikantoStatus()
+        {
+            string result = ReadReplikantoStatusCore();
+            if (result != lastReportedStatus)
+            {
+                lastReportedStatus = result;
+                // Printed on CHANGE only — this runs every batch, and a line per
+                // batch would bury everything else in the Output window.
+                NinjaTrader.Code.Output.Process("AccountMonitor: Replikanto status -> " + result,
+                    NinjaTrader.Cbi.PrintTo.OutputTab1);
+            }
+            return result;
+        }
+
+        private static string ReadReplikantoStatusCore()
+        {
+            try
+            {
+                object fw = GetFramework();
+                if (fw == null) return "unknown";
+
+                bool sawNode = false;
+                string best = null;
+
+                foreach (object node in FindByTypeName(fw, new[] { "Node", "InternetNode" }, 0))
+                {
+                    sawNode = true;
+                    string st = PropString(node, "Status");          // NodeStatus: Off/Online/Away
+                    if (st == null) continue;
+                    st = st.ToLowerInvariant();
+                    if (st == "online") return "online";             // one live node is enough
+                    if (best == null || st == "away") best = st;
+                }
+                if (!sawNode) return "unknown";
+                return best ?? "unknown";
+            }
+            catch { return "unknown"; }
+        }
+
+        /// <summary>Walks an object's fields for instances whose TYPE name matches,
+        /// one level into collections. Depth-limited: the object graph has cycles
+        /// and this runs on the ingestion path.</summary>
+        private static List<object> FindByTypeName(object root, string[] wantedTypeNames, int depth)
+        {
+            var found = new List<object>();
+            if (root == null || depth > 2) return found;
+
+            const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            FieldInfo[] fields;
+            try { fields = root.GetType().GetFields(F); } catch { return found; }
+
+            foreach (FieldInfo f in fields)
+            {
+                object v;
+                try { v = f.GetValue(root); } catch { continue; }
+                if (v == null) continue;
+
+                var items = new List<object>();
+                if (!(v is string) && v is IEnumerable)
+                {
+                    try
+                    {
+                        int i = 0;
+                        foreach (object item in (IEnumerable)v)
+                        {
+                            if (item != null) items.Add(item);
+                            if (++i > 50) break;
+                        }
+                    }
+                    catch { continue; }
+                }
+                else items.Add(v);
+
+                foreach (object item in items)
+                {
+                    string tn = item.GetType().Name;
+                    bool match = false;
+                    foreach (string w in wantedTypeNames) if (tn == w) { match = true; break; }
+                    if (match) { found.Add(item); continue; }
+
+                    // Only descend through Replikanto's own objects; the graph
+                    // reaches all of WPF otherwise.
+                    string full = item.GetType().FullName ?? "";
+                    if (full.IndexOf("Replikanto", StringComparison.OrdinalIgnoreCase) >= 0)
+                        found.AddRange(FindByTypeName(item, wantedTypeNames, depth + 1));
+                }
+            }
+            return found;
+        }
+
+        private static object PropValue(object o, string name)
+        {
+            try
+            {
+                PropertyInfo p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (p == null || p.GetIndexParameters().Length > 0) return null;
+                return p.GetValue(o, null);
+            }
+            catch { return null; }
+        }
+
+        private static string PropString(object o, string name)
+        {
+            object v = PropValue(o, name);
+            return v == null ? null : v.ToString();
+        }
+
         private static async Task SendBatchAsync(Dictionary<string, Dictionary<string, double>> batch, long batchTs)
         {
             // _ts lets every host apply the same ordering guard: an older batch can
             // never overwrite a newer one, no matter which host's write lands last.
+            // Replikanto's own link state, read from its live objects. Sent with
+            // every batch as _replikanto so the dashboard can say it outright
+            // instead of inferring a failure from leader-in-position-followers-flat.
+            // Overall link only — per-follower status was considered and dropped.
             var sb = new StringBuilder("{\"_ts\":").Append(batchTs).Append(',');
+            sb.Append("\"_replikanto\":\"").Append(ReadReplikantoStatus()).Append("\",");
             bool firstAcct = true;
             foreach (var acct in batch)
             {
