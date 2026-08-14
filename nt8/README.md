@@ -21,9 +21,17 @@ AddOns folder as **unsaved work** until it's copied back here and committed.
 
 **Repo → NT8 (deploying a change):**
 1. Copy `nt8/AccountMonitor.cs` over the AddOns folder copy.
-2. Replace the `ApiKey` placeholder (`REPLACE_WITH_REAL_API_KEY`) with the
-   real key — get it from Cloudflare Worker vars or `supabase secrets get
-   API_KEY`. **Never commit the real key** — see below.
+2. Replace three placeholders with real values — **never commit any of
+   them**, see below:
+   - `ApiKey` (`REPLACE_WITH_REAL_API_KEY`) — from Cloudflare Worker vars or
+     `supabase secrets get API_KEY`.
+   - `NtfyTopic` (`REPLACE_WITH_REAL_NTFY_TOPIC`) — the ntfy.sh topic phone
+     alerts are sent to.
+   - `NtfyToken` (`REPLACE_WITH_REAL_NTFY_TOKEN`) — an ntfy.sh access token
+     (`Account → Access Tokens`). Optional in the sense that `SendNtfyAsync`
+     skips auth if left blank/placeholder, but anonymous publishing from this
+     machine's network may not have the same throttling problem Cloudflare
+     hit — token still recommended.
 3. Recompile in the NinjaScript Editor (F5) and confirm no other `.cs` file
    in the AddOns folder declares a class also named `AccountMonitor` or
    `ReplikantoProbe` — NT8 compiles every file in that folder into one
@@ -36,14 +44,15 @@ AddOns folder as **unsaved work** until it's copied back here and committed.
 
 **NT8 → Repo (capturing a change made live):**
 1. Copy the AddOns folder's `AccountMonitor.cs` back over `nt8/AccountMonitor.cs`.
-2. Replace the real `ApiKey` value with the `REPLACE_WITH_REAL_API_KEY`
-   placeholder before committing.
+2. Replace all three real values — `ApiKey`, `NtfyTopic`, `NtfyToken` — with
+   their `REPLACE_WITH_REAL_*` placeholders before committing.
 3. Commit.
 
-## Never commit the real API key
+## Never commit the real API key (or the ntfy topic/token)
 
-`ApiKey` in the repo copy must always read `REPLACE_WITH_REAL_API_KEY`. The
-live key must match what's set in Cloudflare Worker vars and
+`ApiKey`, `NtfyTopic`, and `NtfyToken` in the repo copy must always read their
+`REPLACE_WITH_REAL_*` placeholder. The live `ApiKey` must match what's set in
+Cloudflare Worker vars and
 `supabase secrets` (`API_KEY`) or every batch 401s — silently, per the note
 above. If a real key ever lands in a commit, treat it as compromised and
 rotate it in Cloudflare + Supabase + this file together, same as any other

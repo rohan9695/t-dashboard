@@ -36,12 +36,15 @@ const REQUIRED = [
 // NEXT_PUBLIC_* values are inlined into the bundle at BUILD time anyway, so
 // their absence at runtime says little either way. Flagging them turned a
 // perfectly healthy Cloudflare deploy into a red alert, which is how a monitor
-// teaches you to ignore it. NTFY_TOPIC is the same: unset means notifications
-// off, a valid choice rather than a fault.
+// teaches you to ignore it.
+//
+// NTFY_TOPIC/NTFY_TOKEN/NTFY_SERVER are deliberately NOT reported here anymore
+// — as of the fill-alert fix on 2026-08-14 the Cloudflare Worker no longer
+// sends the ntfy push at all (nt8/AccountMonitor.cs does, directly), so this
+// host having them set says nothing about whether alerts work.
 const REPORTED = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-  'NTFY_TOPIC',
 ] as const
 
 export async function GET() {

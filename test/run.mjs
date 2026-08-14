@@ -29,9 +29,6 @@ const env = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-anon-key',
   SUPABASE_SERVICE_ROLE_KEY:     'test-service-key',
   API_KEY:                       'test-api-key',
-  NTFY_SERVER:                   `http://127.0.0.1:${NTFY_PORT}`,
-  NTFY_TOPIC:                    'test-topic',
-  NTFY_TOKEN:                    'test-ntfy-token',
   PORT:                          String(APP_PORT),
   // Enables /api/auth/sandbox-login so a phone on the same network can get past
   // the Face ID gate. Never set by a deploy — see that route for the second gate.

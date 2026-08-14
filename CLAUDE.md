@@ -50,9 +50,8 @@ Browser Dashboard (React)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key (read-only) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS, server-side only) |
 | `API_KEY` | Auth key NT8 addon sends in `X-Api-Key` header |
-| `NTFY_TOPIC` | ntfy.sh topic for phone alerts. **Unset = notifications off** (endpoint still records fills). Treat as a secret: anyone who knows the topic can read the alerts, so use a long random name. |
-| `NTFY_SERVER` | Optional, defaults to `https://ntfy.sh` |
-| `NTFY_TOKEN` | Optional ntfy.sh access token, sent as `Authorization: Bearer`. Anonymous publishing to ntfy.sh shares a per-IP rate limit across every tenant on whatever platform is making the request — Cloudflare Workers' egress IPs are shared across all its customers, so this project's quota can be (and on 2026-08-14, was) exhausted by traffic that has nothing to do with it, producing a silent `HTTP 429` from ntfy.sh that never reaches the phone. An authenticated token gets its own quota. Unset = anonymous, same as before. |
+| `NTFY_TOPIC` | Read by the *health-check GitHub Actions workflow only* (`secrets.NTFY_TOPIC`), for the daily "is anything reachable" ping. **Not** read by the Next.js app or Cloudflare Worker — see "Fill notifications" below for why fill alerts moved out of this host entirely. |
+| `NTFY_SERVER` | Same scope as `NTFY_TOPIC` above: health-check workflow only, defaults to `https://ntfy.sh`. |
 
 > **Note**: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are also hardcoded as fallbacks in `lib/supabase/client.ts` and `lib/supabase/server.ts` due to a Vercel env var issue encountered during setup.
 
@@ -380,11 +379,15 @@ number and removes the guessing entirely — the addon already sends
    partial-fill alert work either way.
 
 ### To finish the automation
-4. Add three repo secrets so deploys stop being manual: `CLOUDFLARE_API_TOKEN`,
-   `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_ACCESS_TOKEN`. Until then `deploy.yml`
-   runs the tests and skips the deploy steps.
-5. Set **`NTFY_TOPIC`** in Cloudflare vars — unset means notifications are
-   silently off, though fills are still recorded.
+4. ~~Add three repo secrets so deploys stop being manual~~ — done; `deploy.yml`
+   now deploys Cloudflare + all three Supabase edge functions on every push to
+   `main`. Watch `SUPABASE_ACCESS_TOKEN` specifically: it expires and silently
+   stalls only the Supabase half (Cloudflare keeps deploying fine), which is
+   exactly what happened 2026-08-14 — rotate at
+   `supabase.com/dashboard/account/tokens` if a deploy run's Supabase step
+   fails with `401`.
+5. ~~Set `NTFY_TOPIC` in Cloudflare vars~~ — superseded. Fill alerts no longer
+   go through Cloudflare at all; see "Fill notifications" below.
 
 ### Known, not yet done
 - **Column overlap**: a 4-digit P&L collides with Net Liq in the mobile list
@@ -470,10 +473,20 @@ addon is the only place that sees the whole round, so aggregating there is what
 keeps a five-account fill to a single phone alert instead of five.
 
 The endpoint writes one `trade_events` row per account — which is what the
-in-page `ToastProvider` toast subscribes to over Realtime — and sends one ntfy
-notification. When fewer accounts filled than expected the alert is escalated to
-**urgent** priority so it breaks through a silenced phone; that mismatch is the
-entire point of the feature.
+in-page `ToastProvider` toast subscribes to over Realtime — and reports
+`{ accounts, expected, partial }` in its response. **It does not send the ntfy
+push.** That's the addon's job now (`SendNtfyAsync` in `nt8/AccountMonitor.cs`,
+called from `FlushRound` alongside the existing `/api/trade-event` POST):
+confirmed 2026-08-14 that ntfy.sh rate-limits Cloudflare Workers' shared
+egress IPs regardless of authentication — a valid Bearer token from that IP
+still got `HTTP 429`, while the identical token sent from a normal network
+(the trading machine, or this machine) delivered instantly. Only one place may
+ever own the push: if both the server and the addon sent it, a fixed Cloudflare
+IP reputation would silently turn into a double alert per fill. The addon holds
+its own `NtfyTopic`/`NtfyToken` placeholders next to `ApiKey` — same
+never-commit-the-real-value rule, see `nt8/README.md`. When fewer accounts
+filled than expected, the addon escalates to **urgent** priority so it breaks
+through a silenced phone; that mismatch is the entire point of the feature.
 
 ```
 POST <host>/api/trade-event      X-Api-Key: $API_KEY
@@ -481,7 +494,9 @@ POST <host>/api/trade-event      X-Api-Key: $API_KEY
   "accounts": ["PAAPEX…007", "APEX…089"], "total_accounts": 5, "quantity": 1 }
 ```
 `event_type`: open | close | partial · `direction`: long | short | flat ·
-`pnl` only stored on a close. Accounts starting `sim` are ignored.
+`pnl` only stored on a close (the addon doesn't track P&L per fill, so the push
+itself never mentions it — a future improvement, not today's). Accounts
+starting `sim` are ignored.
 
 ## Planned Features (Not Yet Built)
 - Alert when drawdown buffer drops below threshold

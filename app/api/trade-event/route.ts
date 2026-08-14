@@ -1,17 +1,20 @@
 // app/api/trade-event/route.ts
 // POST a fill from the NT8 addon: writes the trade_events rows the dashboard
-// toasts subscribe to, and sends ONE phone notification via ntfy.
+// toasts subscribe to.
 //
 // The addon sends ONE call per fill round listing every account that filled,
 // not one call per account. It is the only place that knows the whole round, and
 // aggregating there is what keeps a five-account fill to a single notification
-// instead of five. The rows still go in one-per-account so the dashboard's
-// existing realtime toast keeps working unchanged.
+// instead of five. The rows go in one-per-account so the dashboard's existing
+// realtime toast keeps working unchanged.
 //
-// total_accounts is how many accounts were EXPECTED to fill. When fewer accounts
-// than that actually filled, the notification is escalated to urgent priority —
-// that mismatch is the whole point of the alert, so it has to break through a
-// silenced phone.
+// This route does NOT send the ntfy phone push anymore — nt8/AccountMonitor.cs
+// (SendNtfyAsync) does, directly from the trading machine. Confirmed
+// 2026-08-14: ntfy.sh rate-limits Cloudflare Workers' shared egress IPs
+// regardless of authentication (a valid Bearer token from that IP still got
+// HTTP 429; the same token from a normal network delivered instantly). Only
+// one place may own the push — duplicating it here risks a second alert per
+// fill the moment Cloudflare's IP reputation changes.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -22,56 +25,9 @@ import { createServiceClient } from '@/lib/supabase/server'
 // first, but that left one layer holding a door that should not exist. The
 // Deno edge functions already fail closed this way; this matches them.
 const API_KEY = process.env.API_KEY ?? ''
-const NTFY_SERVER = process.env.NTFY_SERVER ?? 'https://ntfy.sh'
-const NTFY_TOPIC  = process.env.NTFY_TOPIC ?? ''
-// Optional. Anonymous ntfy.sh publishing is rate-limited per source IP, and
-// Cloudflare Workers share their egress IPs across every tenant on the
-// platform — so this project's quota can be exhausted by traffic that has
-// nothing to do with it (confirmed 2026-08-14: a correctly-configured request
-// still got HTTP 429 back from ntfy.sh). An authenticated account gets its
-// own quota instead of sharing the anonymous pool. Unset = anonymous, same as
-// before.
-const NTFY_TOKEN  = process.env.NTFY_TOKEN ?? ''
 
 const EVENT_TYPES = new Set(['open', 'close', 'partial'])
 const DIRECTIONS  = new Set(['long', 'short', 'flat'])
-
-// ntfy carries the title/priority/tags in HTTP headers, which must stay ASCII —
-// emoji goes in `Tags` (rendered by the app) and the body, never the headers.
-async function notify(opts: {
-  title: string
-  body: string
-  tags: string
-  urgent: boolean
-}): Promise<void> {
-  if (!NTFY_TOPIC) return // notifications not configured — endpoint still works
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 2_000)
-  try {
-    const res = await fetch(`${NTFY_SERVER.replace(/\/$/, '')}/${NTFY_TOPIC}`, {
-      method: 'POST',
-      headers: {
-        Title: opts.title,
-        Tags: opts.tags,
-        Priority: opts.urgent ? 'urgent' : 'default',
-        ...(NTFY_TOKEN ? { Authorization: `Bearer ${NTFY_TOKEN}` } : {}),
-      },
-      body: opts.body,
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      console.error('[trade-event] ntfy returned', res.status)
-    }
-  } catch (e) {
-    // Never fail the request over a notification — the rows are what matter,
-    // and NT8 must not be left retrying a fill because a push was slow. Logged
-    // rather than swallowed so a silently dead topic is diagnosable.
-    console.error('[trade-event] ntfy failed:', e)
-  } finally {
-    clearTimeout(timer)
-  }
-}
 
 export async function POST(req: NextRequest) {
   const key = req.headers.get('x-api-key') ?? req.headers.get('X-Api-Key')
@@ -157,25 +113,6 @@ export async function POST(req: NextRequest) {
   }
 
   const partial = filled < expected
-
-  if (eventType === 'close' && pnl !== null) {
-    const sign = pnl >= 0 ? '+' : '-'
-    await notify({
-      title:  `${symbol} closed`,
-      body:   `${sign}$${Math.abs(pnl).toFixed(2)} on ${filled} account${filled === 1 ? '' : 's'}`,
-      tags:   pnl >= 0 ? 'moneybag' : 'chart_with_downwards_trend',
-      urgent: false,
-    })
-  } else {
-    await notify({
-      title:  partial ? `${symbol} ${direction} - PARTIAL` : `${symbol} ${direction}`,
-      body:   partial
-        ? `Filled on ${filled} of ${expected} accounts only`
-        : `Filled on ${filled} account${filled === 1 ? '' : 's'}`,
-      tags:   partial ? 'rotating_light' : 'white_check_mark',
-      urgent: partial,
-    })
-  }
 
   return NextResponse.json({ status: 'ok', accounts: filled, expected, partial })
 }

@@ -22,7 +22,7 @@ describe('/api/health', () => {
     const body = await (await fetch(`${APP}/api/health`)).json()
     for (const name of [
       'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-      'SUPABASE_SERVICE_ROLE_KEY', 'API_KEY', 'NTFY_TOPIC',
+      'SUPABASE_SERVICE_ROLE_KEY', 'API_KEY',
     ]) {
       assert.equal(typeof body.config[name], 'boolean', `${name} must be a boolean`)
     }
@@ -46,7 +46,6 @@ describe('/api/health', () => {
     const body = await (await fetch(`${APP}/api/health`)).json()
     assert.ok(!body.missing.includes('NEXT_PUBLIC_SUPABASE_URL'))
     assert.ok(!body.missing.includes('NEXT_PUBLIC_SUPABASE_ANON_KEY'))
-    assert.ok(!body.missing.includes('NTFY_TOPIC'), 'notifications off is a choice, not a fault')
     // Still reported, so "off on purpose" stays distinguishable from "forgotten".
     assert.equal(typeof body.config.NEXT_PUBLIC_SUPABASE_URL, 'boolean')
   })

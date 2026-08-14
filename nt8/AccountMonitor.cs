@@ -26,6 +26,19 @@ namespace NinjaTrader.NinjaScript.AddOns
         // — expect 401s until all three agree.
         private const string ApiKey = "REPLACE_WITH_REAL_API_KEY";
 
+        // ── DO NOT COMMIT REAL VALUES HERE EITHER ───────────────────────────────
+        // Confirmed 2026-08-14: ntfy.sh rate-limits Cloudflare Workers' shared
+        // egress IPs regardless of authentication (a valid Bearer token from that
+        // IP still got HTTP 429; the same token direct from a normal network
+        // delivered instantly). So the fill-alert push is sent from HERE, the
+        // trading machine's own network, instead of relying on
+        // /api/trade-event's server-side notify() — that endpoint is still
+        // called below for the DB row the dashboard toast needs, but it no
+        // longer owns the actual phone push.
+        private const string NtfyServer = "https://ntfy.sh";
+        private const string NtfyTopic  = "REPLACE_WITH_REAL_NTFY_TOPIC";
+        private const string NtfyToken  = "REPLACE_WITH_REAL_NTFY_TOKEN";
+
         // ── DIAGNOSTIC SWITCH ───────────────────────────────────────────────────
         // Turn OFF once both questions below are answered. Everything it controls
         // is Print-only — it sends nothing, changes no payload, and alters no
@@ -484,6 +497,49 @@ namespace NinjaTrader.NinjaScript.AddOns
             // alert, so these are tried in ORDER and stop at the first success —
             // the opposite of the batch fan-out, deliberately.
             _ = SendTradeEventAsync(json);
+
+            // The actual phone push, sent from here rather than left to
+            // /api/trade-event's server-side notify() — see the NtfyTopic
+            // comment above for why. SendTradeEventAsync above still owns the
+            // trade_events DB row the dashboard toast needs; this is the only
+            // thing that reaches the phone.
+            bool partial = round.Accounts.Count < expected;
+            string title = partial ? round.Symbol + " " + round.Direction + " - PARTIAL"
+                                    : round.Symbol + " " + round.Direction;
+            string body  = partial
+                ? "Filled on " + round.Accounts.Count + " of " + expected + " accounts only"
+                : "Filled on " + round.Accounts.Count + " account" + (round.Accounts.Count == 1 ? "" : "s");
+            _ = SendNtfyAsync(title, body, partial ? "rotating_light" : "white_check_mark", partial);
+        }
+
+        private static async Task SendNtfyAsync(string title, string body, string tags, bool urgent)
+        {
+            if (NtfyTopic == "REPLACE_WITH_REAL_NTFY_TOPIC" || string.IsNullOrEmpty(NtfyTopic)) return;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, NtfyServer.TrimEnd('/') + "/" + NtfyTopic))
+                {
+                    req.Content = new StringContent(body, Encoding.UTF8);
+                    req.Headers.Add("Title", title);
+                    req.Headers.Add("Tags", tags);
+                    req.Headers.Add("Priority", urgent ? "urgent" : "default");
+                    if (!string.IsNullOrEmpty(NtfyToken) && NtfyToken != "REPLACE_WITH_REAL_NTFY_TOKEN")
+                        req.Headers.Add("Authorization", "Bearer " + NtfyToken);
+
+                    var resp = await httpClient.SendAsync(req).ConfigureAwait(false);
+                    // Print, not Debug.WriteLine: this alert already went missing
+                    // once from a failure nobody could see (Debug.WriteLine never
+                    // reaches the Output window — see nt8/README.md). Not worth
+                    // repeating that mistake on the one thing this file exists to
+                    // deliver.
+                    if (!resp.IsSuccessStatusCode)
+                        Print("AccountMonitor: ntfy push failed, HTTP " + (int)resp.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                Print("AccountMonitor: ntfy push error - " + ex.Message);
+            }
         }
 
         private static async Task SendTradeEventAsync(string json)
