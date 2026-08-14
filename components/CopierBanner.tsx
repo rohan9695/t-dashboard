@@ -1,6 +1,16 @@
 'use client'
 // components/CopierBanner.tsx
-// Two copier problems, one banner, worst-first.
+// Three copier problems, one banner, worst-first.
+//
+// 0. REPLIKANTO REPORTED OFF — ground truth, not inference, so it outranks
+//    both checks below when known. The NT8 addon reads Replikanto's own link
+//    state via reflection (nt8/AccountMonitor.cs, ReadReplikantoStatus) and
+//    sends it as replikanto_status on every account row. Only 'off' triggers
+//    a banner — 'away'/'unknown' stay silent, since neither is a confident
+//    "broken" (the addon deliberately lands on 'unknown' on any reflection
+//    failure rather than guess, per CLAUDE.md's Replikanto section). This is
+//    the only one of the three that can name Replikanto itself as the cause;
+//    the other two only ever see its symptoms.
 //
 // 1. NOT COPYING (during a trade) — the leader holds an open position and a
 //    live follower is still flat. The copy did not happen.
@@ -16,11 +26,6 @@
 // quiet right now" (everything equally old, nothing wrong) from "this account
 // dropped" (one far behind the rest). Every other staleness check in the app is
 // absolute and cannot make that distinction.
-//
-// What this CANNOT tell you: whether Replikanto itself is connected. That state
-// lives inside NinjaTrader and nothing reports it here. Accounts reporting is a
-// precondition for copying, not proof of it. To know Replikanto's own status the
-// NT8 addon would have to read it and POST it.
 //
 // The NOT COPYING check depends on open P&L: dollar_open is fed by NT8's
 // UnrealizedProfitLoss / DollarOpen items. If the addon does not subscribe to
@@ -58,6 +63,18 @@ export function CopierBanner() {
   const leader = visible.find((a) => a.replikanto_role === 'leader')
   const now = Date.now()
   const stamp = (a: { last_update: string }) => new Date(a.last_update).getTime()
+
+  // ── 0. Replikanto reported off ────────────────────────────────────────────
+  // replikanto_status is the same value on every account row (one link, not
+  // per-account), so any visible row carries it — doesn't have to be the
+  // leader's row specifically.
+  if (visible.some((a) => a.replikanto_status === 'off')) {
+    return (
+      <Banner tone="danger" icon="🔌">
+        Replikanto reports OFF — NT8 says the copier itself is disconnected.
+      </Banner>
+    )
+  }
 
   // ── 1. Not copying ────────────────────────────────────────────────────────
   // Needs at least two visible accounts — there is nothing to copy between

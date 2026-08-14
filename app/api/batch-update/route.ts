@@ -27,8 +27,8 @@ import {
 // Deno edge functions already fail closed this way; this matches them.
 const API_KEY = process.env.API_KEY ?? ''
 
-// Payload: { "ACCOUNT_ID": { "NT8ItemName": value, ... }, ..., "_ts": <ms since epoch> }
-type BatchPayload = Record<string, Record<string, number>> & { _ts?: number }
+// Payload: { "ACCOUNT_ID": { "NT8ItemName": value, ... }, ..., "_ts": <ms since epoch>, "_replikanto": "online"|"off"|"away"|"unknown" }
+type BatchPayload = Record<string, Record<string, number>> & { _ts?: number; _replikanto?: string }
 
 // How far ahead of THIS server a stored last_batch_ts may legitimately sit.
 // _ts is the NT8 machine's clock, so the two are only loosely related; a few
@@ -43,6 +43,7 @@ function buildRow(
   items: Record<string, number>,
   batchTs: number,
   unknownOut?: Set<string>,
+  replikantoStatus?: string,
 ): AccountRow | null {
   // Multi-host fan-out means several hosts can process overlapping batches for
   // the same account concurrently. Refuse to apply a batch older than whatever
@@ -109,6 +110,12 @@ function buildRow(
   enrichAccount(row, true)
   row.last_update = new Date().toISOString()
 
+  // Same value on every account row in the batch — it's Replikanto's one link
+  // state, not per-account. Only overwrite when the addon actually sent it, so
+  // an older addon build (or a batch that omitted it) never blanks a
+  // previously-known status.
+  if (replikantoStatus) row.replikanto_status = replikantoStatus
+
   // An account actively sending data is live by definition. This must
   // override any hidden=true — sync-accounts can wrongly hide a live account
   // during NT8 connection churn (partial live lists at startup), and this
@@ -146,6 +153,7 @@ export async function POST(req: NextRequest) {
   // older addon builds without it just disable the staleness guard (always
   // applies, matching the previous behavior).
   const batchTs = typeof payload._ts === 'number' ? payload._ts : Date.now()
+  const replikantoStatus = typeof payload._replikanto === 'string' ? payload._replikanto : undefined
 
   // Anything prefixed with _ is batch METADATA, not an account. Without this
   // guard a key like _replikanto is taken for an account id and its string
@@ -183,7 +191,7 @@ export async function POST(req: NextRequest) {
   // what NT8 is actually sending. Collected only, never stored.
   const unknown = new Set<string>()
   for (const [accountId, items] of accounts) {
-    const row = buildRow(byId.get(accountId), accountId, items as Record<string, number>, batchTs, unknown)
+    const row = buildRow(byId.get(accountId), accountId, items as Record<string, number>, batchTs, unknown, replikantoStatus)
     if (row) rows.push(row)
   }
   const unknownItems = unknown.size > 0 ? { unknown: [...unknown].sort() } : {}

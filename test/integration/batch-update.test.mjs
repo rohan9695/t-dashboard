@@ -110,6 +110,24 @@ describe('/api/batch-update', () => {
     assert.deepEqual(rows.map((r) => r.account_id), ['APEX1'], 'only the real account is written')
   })
 
+  test('_replikanto is stored as replikanto_status on every account in the batch', async () => {
+    await postJson('/api/batch-update', {
+      APEX1: { NetLiquidation: 50100 },
+      APEX2: { NetLiquidation: 25000 },
+      _ts: 2000,
+      _replikanto: 'off',
+    })
+    const rows = await storedAccounts()
+    assert.ok(rows.every((r) => r.replikanto_status === 'off'), 'one link status, broadcast to every row')
+  })
+
+  test('a batch without _replikanto never blanks a previously-known status', async () => {
+    await seed(account('APEX1', 50000, { replikanto_status: 'online' }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50750.25 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.replikanto_status, 'online', 'an older addon build must not erase the last known status')
+  })
+
   test('sim accounts are ignored', async () => {
     await seed(account('APEXREAL', 50000))
     await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })

@@ -172,6 +172,13 @@ export interface AccountRow {
   tradovate_daily_pnl?:         number | null
   tradovate_synced_at?:         string | null
   replikanto_role?:              'leader' | 'follower' | null
+  // Replikanto's own link state, read by the NT8 addon via reflection and
+  // broadcast with every batch as "_replikanto" (same value on every account
+  // row in a batch — it's a single link, not per-account). 'online' | 'off' |
+  // 'away' | 'unknown'. Never a confident wrong answer — every reflection
+  // failure path on the addon side lands on 'unknown'. See CLAUDE.md
+  // "Replikanto: readable, but only through a private singleton".
+  replikanto_status?:            string | null
   // true when NT8 no longer reports this account — hidden from the dashboard,
   // never auto-deleted (see /api/sync-accounts)
   hidden?:                       boolean
