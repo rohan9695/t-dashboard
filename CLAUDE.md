@@ -260,6 +260,58 @@ one malformed row blanked the entire page.
 > the edge function, and a stuck one was indistinguishable from an outage.
 > Emergency stop = disable the edge function from the Supabase dashboard.
 
+## What the NT8 addon actually sends (measured 2026-08-14)
+
+A diagnostic build printed every distinct `AccountItem` name on first sighting.
+This is ground truth, replacing inference from `nt_fields`:
+
+```
+UnrealizedProfitLoss   NetLiquidation   ExcessInitialMargin   ExcessIntradayMargin
+```
+
+- **No drawdown item is sent. At all.** No `TrailingDrawdownValue`,
+  `DrawdownAuto` or `DistDrawdown`. Every DD Buffer figure on the dashboard —
+  and therefore every `breached` flag, since `buildRow` derives status from
+  `dist_drawdown` — comes from the balance-guessed profile table in
+  `detectAccountProfile`. Still unverified against Apex's own number.
+- **No realized P&L item had appeared** as of the last check, though the account
+  had not traded since the addon was compiled and items print only on first
+  sighting. If `RealizedProfitLoss`/`GrossRealizedProfitLoss` never arrives after
+  a fill, that is the explanation for `REALIZED $0.00`, and it is an addon-side
+  gap rather than an ITEM_MAP one.
+- `ExcessInitialMargin` is unmapped, so it now shows up in the `unknown[]` field
+  of the batch-update response — which is what that field is for.
+- `ExcessIntradayMargin` maps to `tradovate_margin_used` but reads **identical to
+  NetLiquidation** (equity, not margin used). That mapping is meaningless as it
+  stands.
+
+## Replikanto: readable, but only through a private singleton
+
+Four reflection probes established this. Recorded so nobody repeats them.
+
+- **Its state IS exposed.** `Replikanto.Node`, `Replikanto.InternetNode` and
+  `Replikanto.SlaveAccount` carry `ConnectionStatus`, `Status`
+  (`NodeStatus.Off/Online/Away`), `Connected`, and `LiquidationState`.
+  `FollowerAccountStatus` is `Off/Checked/OutOfSync/Disarmed`.
+- **There is no public static entry point.** Every public static on those types
+  is an enum member or a localised UI string.
+- **The way in is a private static field on `ReplikantoFramework` whose type is
+  `ReplikantoFramework` itself** — the live singleton.
+- **The window route is a dead end.** `ReplikantoWindow.ConnectionStatus` is a
+  public property, but `Application.Current.Windows` never contains it:
+  NinjaTrader runs each window on its own UI thread, and that collection is
+  thread-affine to the main dispatcher. Confirmed empty with the window open.
+  Do not retry this.
+- **Cost of building on it:** the field names are obfuscated on Replikanto
+  8.1.5.1 and will change when FlowBots ships an update. Anything built here has
+  to fail to "unknown", never to a confident wrong answer, and should be
+  expected to need re-derivation after a Replikanto upgrade.
+
+> The NinjaScript files are NOT in this repo — they live in
+> `Documents\NinjaTrader 8\bin\Custom\AddOns\` on the trading machine, with no
+> version control. `AccountMonitor.cs` feeds the entire dashboard and has one
+> copy, no history, and no diff. Worth moving into `nt8/` here.
+
 ## Open items (handoff — 2026-08-07)
 
 Everything below is merged to `main` and DEPLOYED (Cloudflare + all three
