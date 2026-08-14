@@ -632,7 +632,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                     NinjaTrader.Code.Output.Process(diag.ToString(), NinjaTrader.NinjaScript.PrintTo.OutputTab1);
                 }
             }
-            catch { /* stays null -> unknown */ }
+            catch (Exception ex)
+            {
+                // Behavior is unchanged (frameworkInstance stays null -> unknown) —
+                // this only adds visibility. The bare `catch { }` this replaces was
+                // swallowing whatever broke on 2026-08-14 with zero trace: the
+                // one-time diagnostic a few lines up never printed at all, which
+                // only makes sense if something threw before reaching it —
+                // GetFields(..., FlattenHierarchy) is the prime suspect, since it
+                // now walks ReplikantoFramework's full base-class chain (likely
+                // through several NinjaScript/WPF layers) where the original
+                // declared-fields-only search never went.
+                NinjaTrader.Code.Output.Process(
+                    "AccountMonitor: Replikanto reflection threw: " + ex.GetType().FullName + ": " + ex.Message,
+                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+            }
             return frameworkInstance;
         }
 
