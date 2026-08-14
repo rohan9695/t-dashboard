@@ -779,6 +779,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             var found = new List<object>();
             if (root == null || depth > 2) return found;
 
+            // The root itself can already BE a match — confirmed 2026-08-14: the
+            // root scan found a live Replikanto.InternetNode instance directly,
+            // but this function only ever checked root's FIELDS for a match, never
+            // root itself, so it walked straight past the node into its own
+            // sub-fields (string lists, bool arrays) and found nothing.
+            foreach (string w in wantedTypeNames)
+            {
+                if (root.GetType().Name == w) { found.Add(root); return found; }
+            }
+
             const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
             FieldInfo[] fields;
             try { fields = root.GetType().GetFields(F); } catch { return found; }
