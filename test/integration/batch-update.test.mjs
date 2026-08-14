@@ -96,6 +96,20 @@ describe('/api/batch-update', () => {
     assert.equal(row.realized_pnl, 98, 'net beats gross regardless of payload order')
   })
 
+  test('underscore-prefixed keys are metadata, not accounts', async () => {
+    // Without this, _replikanto is taken for an account id and its string value
+    // is iterated character by character into a garbage row — which is what
+    // would have happened the moment the addon started sending copier status.
+    await postJson('/api/batch-update', {
+      APEX1: { NetLiquidation: 50100 },
+      _ts: 2000,
+      _replikanto: 'online',
+      _replikanto_followers: 3,
+    })
+    const rows = await storedAccounts()
+    assert.deepEqual(rows.map((r) => r.account_id), ['APEX1'], 'only the real account is written')
+  })
+
   test('sim accounts are ignored', async () => {
     await seed(account('APEXREAL', 50000))
     await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })

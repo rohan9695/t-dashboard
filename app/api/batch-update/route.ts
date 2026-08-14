@@ -147,8 +147,13 @@ export async function POST(req: NextRequest) {
   // applies, matching the previous behavior).
   const batchTs = typeof payload._ts === 'number' ? payload._ts : Date.now()
 
+  // Anything prefixed with _ is batch METADATA, not an account. Without this
+  // guard a key like _replikanto is taken for an account id and its string
+  // value is iterated character by character into a garbage row. Reserving the
+  // prefix means the addon can add metadata later without a matching deploy
+  // here — the ordering hazard that makes such additions dangerous.
   const accounts = Object.entries(payload).filter(([id]) =>
-    id !== '_ts' && !id.toLowerCase().startsWith('sim'),
+    !id.startsWith('_') && !id.toLowerCase().startsWith('sim'),
   )
 
   if (accounts.length === 0) {
