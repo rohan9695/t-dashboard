@@ -594,11 +594,42 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 if (fw == null) return null;
 
-                foreach (FieldInfo f in fw.GetFields(BindingFlags.NonPublic | BindingFlags.Static))
+                // Match by the VALUE's runtime type, not the field's declared type,
+                // and include inherited fields (FlattenHierarchy). The original
+                // declared-type-only check silently found nothing on the live
+                // build (confirmed 2026-08-14: prints "unknown" every batch even
+                // though the probe confirms ReplikantoFramework/Node/InternetNode
+                // all exist and load fine) — most likely because the singleton
+                // lives in a field declared as a base/interface type, or on a
+                // base class ReplikantoFramework itself inherits from.
+                const BindingFlags STATIC_ALL =
+                    BindingFlags.NonPublic | BindingFlags.Public |
+                    BindingFlags.Static | BindingFlags.FlattenHierarchy;
+                foreach (FieldInfo f in fw.GetFields(STATIC_ALL))
                 {
-                    if (f.FieldType != fw) continue;
-                    object v = f.GetValue(null);
-                    if (v != null) { frameworkInstance = v; break; }
+                    object v;
+                    try { v = f.GetValue(null); } catch { continue; }
+                    if (v != null && v.GetType() == fw) { frameworkInstance = v; break; }
+                }
+
+                // One-time diagnostic if the match still fails: list every static
+                // field's VALUE type (not the obfuscated field name) so the next
+                // failure is diagnosable without another guess-and-recompile round.
+                if (frameworkInstance == null)
+                {
+                    // Static context — GetFramework() is static, so this uses
+                    // Output.Process rather than the instance Print() the rest of
+                    // this file uses (see the CS0120 note on SendNtfyAsync above).
+                    var diag = new StringBuilder(
+                        "AccountMonitor: Replikanto singleton NOT found on " + FrameworkType +
+                        " — static field value types seen:");
+                    foreach (FieldInfo f in fw.GetFields(STATIC_ALL))
+                    {
+                        object v;
+                        try { v = f.GetValue(null); } catch (Exception ex) { diag.Append("\n    (threw: ").Append(ex.Message).Append(')'); continue; }
+                        diag.Append("\n    ").Append(v == null ? "null" : v.GetType().FullName);
+                    }
+                    NinjaTrader.Code.Output.Process(diag.ToString(), NinjaTrader.NinjaScript.PrintTo.OutputTab1);
                 }
             }
             catch { /* stays null -> unknown */ }
