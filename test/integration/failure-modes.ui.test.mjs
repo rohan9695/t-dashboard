@@ -115,16 +115,25 @@ describe('NT8 firing but Replikanto not copying', { skip }, () => {
     await context.close()
   })
 
-  test('the addon reports the same failure to the phone', async () => {
-    // Belt and braces: the dashboard banner needs the page open, the ntfy alert
-    // does not. Only the leader filled out of five expected.
-    await postJson('/api/trade-event', {
+  test('a partial fill is reported so the addon can escalate the phone alert', async () => {
+    // Belt and braces: the dashboard banner needs the page open, the phone
+    // alert does not. Only the leader filled out of five expected.
+    //
+    // The actual ntfy push now happens in nt8/AccountMonitor.cs
+    // (SendNtfyAsync), sent directly from the trading machine — see
+    // CLAUDE.md's Fill notifications section for why it moved off Cloudflare.
+    // That C# code isn't reachable from this Node suite, so the assertion
+    // here stops at what this route is actually responsible for: reporting
+    // the round accurately enough for the addon to decide urgent vs default.
+    const res = await postJson('/api/trade-event', {
       symbol: 'ES', direction: 'long', event_type: 'open',
       accounts: [LEADER], total_accounts: 5,
     })
-    const [note] = await notifications()
-    assert.equal(note.title, 'ES long - PARTIAL')
-    assert.equal(note.priority, 'urgent')
+    const body = await res.json()
+    assert.equal(body.accounts, 1)
+    assert.equal(body.expected, 5)
+    assert.equal(body.partial, true)
+    assert.equal((await notifications()).length, 0, 'this route no longer pushes — the addon does')
   })
 })
 
