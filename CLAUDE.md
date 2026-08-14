@@ -307,10 +307,15 @@ Four reflection probes established this. Recorded so nobody repeats them.
   to fail to "unknown", never to a confident wrong answer, and should be
   expected to need re-derivation after a Replikanto upgrade.
 
-> The NinjaScript files are NOT in this repo — they live in
-> `Documents\NinjaTrader 8\bin\Custom\AddOns\` on the trading machine, with no
-> version control. `AccountMonitor.cs` feeds the entire dashboard and has one
-> copy, no history, and no diff. Worth moving into `nt8/` here.
+> `AccountMonitor.cs` is now version-controlled at [`nt8/AccountMonitor.cs`](nt8/AccountMonitor.cs)
+> — that's the source of truth. The live NT8 machine still runs its own copy at
+> `Documents\NinjaTrader 8\bin\Custom\AddOns\AccountMonitor.cs`, which is the
+> deploy target, not version controlled, and must be synced manually — see
+> [`nt8/README.md`](nt8/README.md). The repo copy's `ApiKey` is always a
+> placeholder; the real key only ever lives in the deployed copy plus
+> Cloudflare/Supabase env vars. This file was overwritten once already this
+> session by a throwaway diagnostic probe, which is exactly the failure mode
+> version control now catches.
 
 ## Open items (handoff — 2026-08-07)
 
