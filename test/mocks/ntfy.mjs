@@ -27,10 +27,11 @@ http.createServer(async (req, res) => {
   req.on('data', (c) => (body += c))
   req.on('end', () => {
     received.push({
-      topic:    url.pathname.replace(/^\//, ''),
-      title:    req.headers.title,
-      tags:     req.headers.tags,
-      priority: req.headers.priority,
+      topic:         url.pathname.replace(/^\//, ''),
+      title:         req.headers.title,
+      tags:          req.headers.tags,
+      priority:      req.headers.priority,
+      authorization: req.headers.authorization,
       body,
     })
     send(res, 200, { id: 'mock' })

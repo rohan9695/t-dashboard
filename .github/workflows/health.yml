@@ -10,9 +10,13 @@ name: Host health
 # Runs on a GitHub runner, which (unlike a dev container behind a proxy) can
 # actually reach Cloudflare, Netlify and Supabase.
 #
-# Optional secret:
+# Optional secrets:
 #   NTFY_TOPIC   same topic the dashboard uses, so failures reach your phone.
 #                Without it the job just fails and GitHub emails you instead.
+#   NTFY_TOKEN   same token app/api/trade-event/route.ts uses (see there for
+#                why: anonymous ntfy.sh publishing shares a rate-limit pool
+#                across unrelated traffic). Without it, publishes anonymously,
+#                same as before.
 
 on:
   schedule:
@@ -71,6 +75,7 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_SERVER: ${{ secrets.NTFY_SERVER || 'https://ntfy.sh' }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: |
           if [ -z "$NTFY_TOPIC" ]; then
             echo "::error::NTFY_TOPIC secret is not set — nothing to test."
@@ -80,6 +85,7 @@ jobs:
             -H "Title: ntfy test - alerting works" \
             -H "Priority: default" \
             -H "Tags: white_check_mark" \
+            ${NTFY_TOKEN:+-H "Authorization: Bearer $NTFY_TOKEN"} \
             -d "If you can read this, the morning host check can reach your phone." \
             "${NTFY_SERVER%/}/$NTFY_TOPIC"
           echo "Test push sent."
@@ -89,6 +95,7 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_SERVER: ${{ secrets.NTFY_SERVER || 'https://ntfy.sh' }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: |
           if [ -z "$NTFY_TOPIC" ]; then
             echo "::warning::NTFY_TOPIC secret not set — no phone alert sent. Failing so GitHub emails instead."
@@ -99,6 +106,7 @@ jobs:
               -H "Title: Dashboard host check FAILED" \
               -H "Priority: high" \
               -H "Tags: warning" \
+              ${NTFY_TOKEN:+-H "Authorization: Bearer $NTFY_TOKEN"} \
               --data-binary @verify.txt \
               "${NTFY_SERVER%/}/$NTFY_TOPIC" || echo "::warning::ntfy push failed"
           fi

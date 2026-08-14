@@ -52,6 +52,7 @@ Browser Dashboard (React)
 | `API_KEY` | Auth key NT8 addon sends in `X-Api-Key` header |
 | `NTFY_TOPIC` | ntfy.sh topic for phone alerts. **Unset = notifications off** (endpoint still records fills). Treat as a secret: anyone who knows the topic can read the alerts, so use a long random name. |
 | `NTFY_SERVER` | Optional, defaults to `https://ntfy.sh` |
+| `NTFY_TOKEN` | Optional ntfy.sh access token, sent as `Authorization: Bearer`. Anonymous publishing to ntfy.sh shares a per-IP rate limit across every tenant on whatever platform is making the request — Cloudflare Workers' egress IPs are shared across all its customers, so this project's quota can be (and on 2026-08-14, was) exhausted by traffic that has nothing to do with it, producing a silent `HTTP 429` from ntfy.sh that never reaches the phone. An authenticated token gets its own quota. Unset = anonymous, same as before. |
 
 > **Note**: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are also hardcoded as fallbacks in `lib/supabase/client.ts` and `lib/supabase/server.ts` due to a Vercel env var issue encountered during setup.
 

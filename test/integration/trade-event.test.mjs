@@ -73,6 +73,16 @@ describe('/api/trade-event — one notification per fill round', () => {
     assert.equal(notes.length, 1)
     assert.equal(notes[0].title, 'NQ short - PARTIAL')
   })
+
+  // ntfy.sh's anonymous per-IP quota is shared across every Cloudflare Workers
+  // tenant, and got exhausted by unrelated traffic (confirmed 2026-08-14: a
+  // correctly-configured request came back HTTP 429). NTFY_TOKEN moves this
+  // project onto its own authenticated quota instead.
+  test('an ntfy token is sent as a Bearer header, off the shared anonymous quota', async () => {
+    await postJson('/api/trade-event', { symbol: 'ES', direction: 'long', accounts: FIVE, total_accounts: 5 })
+    const [note] = await notifications()
+    assert.equal(note.authorization, 'Bearer test-ntfy-token')
+  })
 })
 
 describe('/api/trade-event — validation', () => {

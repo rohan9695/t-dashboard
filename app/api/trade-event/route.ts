@@ -24,6 +24,14 @@ import { createServiceClient } from '@/lib/supabase/server'
 const API_KEY = process.env.API_KEY ?? ''
 const NTFY_SERVER = process.env.NTFY_SERVER ?? 'https://ntfy.sh'
 const NTFY_TOPIC  = process.env.NTFY_TOPIC ?? ''
+// Optional. Anonymous ntfy.sh publishing is rate-limited per source IP, and
+// Cloudflare Workers share their egress IPs across every tenant on the
+// platform — so this project's quota can be exhausted by traffic that has
+// nothing to do with it (confirmed 2026-08-14: a correctly-configured request
+// still got HTTP 429 back from ntfy.sh). An authenticated account gets its
+// own quota instead of sharing the anonymous pool. Unset = anonymous, same as
+// before.
+const NTFY_TOKEN  = process.env.NTFY_TOKEN ?? ''
 
 const EVENT_TYPES = new Set(['open', 'close', 'partial'])
 const DIRECTIONS  = new Set(['long', 'short', 'flat'])
@@ -47,6 +55,7 @@ async function notify(opts: {
         Title: opts.title,
         Tags: opts.tags,
         Priority: opts.urgent ? 'urgent' : 'default',
+        ...(NTFY_TOKEN ? { Authorization: `Bearer ${NTFY_TOKEN}` } : {}),
       },
       body: opts.body,
       signal: controller.signal,
