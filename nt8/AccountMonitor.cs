@@ -603,7 +603,14 @@ namespace NinjaTrader.NinjaScript.AddOns
 
                     foreach (Type t in ts)
                     {
-                        if (t == null || !IsReplikantoNamespace(t.Namespace)) continue;
+                        // Enums are the noise that swamped the first version of
+                        // this scan (confirmed 2026-08-14: 28 "roots" found, the
+                        // first 8 shown were all Replikanto.EnumMethod /
+                        // FollowerAccountStatus values) — every named enum
+                        // member is technically a static field whose value's
+                        // type trivially matches the namespace filter, and an
+                        // enum value can never hold a Node/InternetNode.
+                        if (t == null || t.IsEnum || !IsReplikantoNamespace(t.Namespace)) continue;
 
                         FieldInfo[] fields;
                         try { fields = t.GetFields(STATIC_ALL); } catch { continue; }
@@ -613,7 +620,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                             object v;
                             try { v = f.GetValue(null); } catch { continue; }
                             if (v == null) continue;
-                            if (!IsReplikantoNamespace(v.GetType().Namespace)) continue;
+                            Type vt = v.GetType();
+                            if (vt.IsEnum || vt.IsPrimitive || vt == typeof(string)) continue;
+                            if (!IsReplikantoNamespace(vt.Namespace)) continue;
                             if (!roots.Contains(v)) roots.Add(v);
                         }
                     }
@@ -713,7 +722,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 sb.Append("\n[root] ").Append(root.GetType().FullName);
                 DumpFields(root, 0, sb);
-                if (++shown >= 8) { sb.Append("\n...(remaining roots omitted)"); break; }
+                if (++shown >= 15) { sb.Append("\n...(remaining roots omitted)"); break; }
             }
             NinjaTrader.Code.Output.Process(sb.ToString(), NinjaTrader.NinjaScript.PrintTo.OutputTab1);
         }
