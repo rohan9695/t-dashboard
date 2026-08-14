@@ -24,8 +24,15 @@ export const ITEM_MAP: Record<string, string> = {
   DistDrawdown:              'dist_drawdown',
   DistanceToDrawdown:        'dist_drawdown',
   RealizedProfitLoss:        'realized_pnl',
-  // GrossRealizedProfitLoss intentionally omitted — it's pre-commission and
-  // would overwrite the correct net RealizedProfitLoss value sent shortly after
+  // Pre-commission, so it must never beat the net RealizedProfitLoss that
+  // usually follows it — ITEM_PRIORITY below enforces that regardless of the
+  // order they arrive in. It was previously left unmapped altogether, which
+  // predates ITEM_PRIORITY and was the only defence available at the time. The
+  // cost of dropping it: on a connection that sends ONLY the gross figure,
+  // realized_pnl never enters nt_fields, so the daily rollover zeroes it and
+  // REALIZED reads $0.00 for the rest of the session no matter how much was
+  // made. A gross number is a little optimistic; zero is simply wrong.
+  GrossRealizedProfitLoss:   'realized_pnl',
   // Task 6: new Tradovate fields from NT8 addon
   TrailingDrawdownValue:     'tradovate_trailing_drawdown',
   RealizedPnL:               'tradovate_realized_pnl',
@@ -51,6 +58,10 @@ export const ITEM_PRIORITY: Record<string, number> = {
   NetLiquidation: 3,
   TotalAvailable: 2,
   CashValue:      1,
+  // realized_pnl: net beats gross. Gross is pre-commission, so it is only ever
+  // a stand-in for a connection that does not send the net figure at all.
+  RealizedProfitLoss:      2,
+  GrossRealizedProfitLoss: 1,
 }
 
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────

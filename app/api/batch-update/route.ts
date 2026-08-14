@@ -20,10 +20,20 @@ import {
 } from '@/lib/trading-logic'
 
 
-const API_KEY = process.env.API_KEY ?? 'change-me-set-in-env-file'
+// Unset means "reject everything", never a published default. The old
+// fallback was a literal in this repo, so a host that forgot the variable
+// accepted a key anyone could read here — middleware happened to block it
+// first, but that left one layer holding a door that should not exist. The
+// Deno edge functions already fail closed this way; this matches them.
+const API_KEY = process.env.API_KEY ?? ''
 
 // Payload: { "ACCOUNT_ID": { "NT8ItemName": value, ... }, ..., "_ts": <ms since epoch> }
 type BatchPayload = Record<string, Record<string, number>> & { _ts?: number }
+
+// How far ahead of THIS server a stored last_batch_ts may legitimately sit.
+// _ts is the NT8 machine's clock, so the two are only loosely related; a few
+// minutes covers ordinary drift between hosts.
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60_000
 
 // Pure: folds one account's items onto its stored row. Returns null when the
 // batch should not be applied at all (stale, or nothing recognisable in it).
@@ -32,13 +42,28 @@ function buildRow(
   accountId: string,
   items: Record<string, number>,
   batchTs: number,
+  unknownOut?: Set<string>,
 ): AccountRow | null {
   // Multi-host fan-out means several hosts can process overlapping batches for
   // the same account concurrently. Refuse to apply a batch older than whatever
   // is already stored, so an in-flight stale write can never clobber fresher
   // data another host already wrote.
-  if (existing && typeof existing.last_batch_ts === 'number' && batchTs <= existing.last_batch_ts!) {
-    return null
+  //
+  // But _ts is the NT8 MACHINE's clock, not this server's. A clock that ran
+  // ahead — or corrected backwards after an NTP sync — leaves a stored value
+  // in the future, and then every subsequent batch is refused. That failed
+  // silently: HTTP 200, processed:0, no log the trader ever sees, the
+  // dashboard frozen while every other indicator reads healthy. A stored
+  // timestamp minutes into this server's future cannot be legitimate, so
+  // ignore the guard rather than lock the account out.
+  //
+  // Trade-off: on a machine whose clock is PERSISTENTLY ahead, the ordering
+  // guard stays disabled and a stale write from another host could land. That
+  // costs one out-of-order update; the alternative costs all of them.
+  if (existing && typeof existing.last_batch_ts === 'number') {
+    const stored = existing.last_batch_ts!
+    const storedIsImpossible = stored > Date.now() + CLOCK_SKEW_TOLERANCE_MS
+    if (!storedIsImpossible && batchTs <= stored) return null
   }
 
   const row: AccountRow = existing ?? (() => {
@@ -54,7 +79,14 @@ function buildRow(
 
   for (const [itemName, value] of Object.entries(items)) {
     const field = ITEM_MAP[itemName]
-    if (!field) continue
+    if (!field) {
+      // Dropped, as before — but no longer without a trace. An unmapped item
+      // is indistinguishable from one that was never sent, which is how a
+      // gross-only realized P&L feed hid for months: the value arrived every
+      // second and vanished on arrival.
+      unknownOut?.add(itemName)
+      continue
+    }
     anyKnown = true
 
     const priority = ITEM_PRIORITY[itemName] ?? 0
@@ -97,7 +129,9 @@ function buildRow(
 
 export async function POST(req: NextRequest) {
   const key = req.headers.get('x-api-key') ?? req.headers.get('X-Api-Key')
-  if (key !== API_KEY) {
+  // !API_KEY matters as much as the comparison: with both sides empty an
+  // empty X-Api-Key header would compare equal and authenticate.
+  if (!API_KEY || key !== API_KEY) {
     return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 })
   }
 
@@ -140,14 +174,18 @@ export async function POST(req: NextRequest) {
   )
 
   const rows: AccountRow[] = []
+  // Item names no recognised mapping exists for, echoed back so one curl shows
+  // what NT8 is actually sending. Collected only, never stored.
+  const unknown = new Set<string>()
   for (const [accountId, items] of accounts) {
-    const row = buildRow(byId.get(accountId), accountId, items as Record<string, number>, batchTs)
+    const row = buildRow(byId.get(accountId), accountId, items as Record<string, number>, batchTs, unknown)
     if (row) rows.push(row)
   }
+  const unknownItems = unknown.size > 0 ? { unknown: [...unknown].sort() } : {}
 
   if (rows.length === 0) {
     // Every account was stale or carried nothing recognisable.
-    return NextResponse.json({ status: 'ok', processed: 0 })
+    return NextResponse.json({ status: 'ok', processed: 0, ...unknownItems })
   }
 
   // ── One write for the whole batch ─────────────────────────────────────────
@@ -156,7 +194,7 @@ export async function POST(req: NextRequest) {
     .upsert(rows, { onConflict: 'account_id' })
 
   if (!writeError) {
-    return NextResponse.json({ status: 'ok', processed: rows.length })
+    return NextResponse.json({ status: 'ok', processed: rows.length, ...unknownItems })
   }
 
   // A bulk write is all-or-nothing, so one malformed row would otherwise lose
@@ -178,10 +216,10 @@ export async function POST(req: NextRequest) {
 
   if (failed.length > 0) {
     return NextResponse.json(
-      { status: 'partial', processed: rows.length - failed.length, failed: failed.length },
+      { status: 'partial', processed: rows.length - failed.length, failed: failed.length, ...unknownItems },
       { status: 500 },
     )
   }
 
-  return NextResponse.json({ status: 'ok', processed: rows.length })
+  return NextResponse.json({ status: 'ok', processed: rows.length, ...unknownItems })
 }

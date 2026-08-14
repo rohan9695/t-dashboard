@@ -217,12 +217,16 @@ readout. It auto-detects account size from balance:
 3. **Push to `main` only** — Netlify auto-deploys from `main` via its GitHub link; Cloudflare does NOT auto-deploy and needs a manual `wrangler deploy` (see deployment memory) after every change that should go live there. The old `vercel/react-server-components-cve-vu-7f5ap6` branch is no longer force-pushed to since Vercel was dropped — leave it as-is.
 4. **Keep ITEM_MAP in sync** — if you add NT8 item names, update `lib/trading-logic.ts` ITEM_MAP. Also: `supabase/functions/_shared/trading-logic.ts` is a mirror copy of `lib/trading-logic.ts` for the Deno edge functions — any change to the lib file must be copied there and the `batch-update`/`sync-accounts` edge functions re-deployed (`npx supabase functions deploy <name> --no-verify-jwt --project-ref gvbtnsktudmgmpamkhnl`)
    - **ITEM_PRIORITY** — when several NT8 items map to the *same* field but don't mean the same thing, rank them in `ITEM_PRIORITY` (higher wins) instead of relying on payload order. `total_available` has three sources and only `NetLiquidation` includes open-position P&L; `CashValue` doesn't move while a position is open, so letting it land last freezes equity — and `dist_drawdown` / `dist_to_daily_loss` are both derived from `total_available`, so the whole risk display freezes with it. Unranked items stay priority 0 (last-wins).
+   - **Never leave an item unmapped to stop it winning — rank it instead.** `GrossRealizedProfitLoss` was omitted from ITEM_MAP for exactly that reason, which pre-dated ITEM_PRIORITY. The cost: on a feed that sends *only* the gross figure, `realized_pnl` never enters `nt_fields`, so the daily rollover in `computeTradovateMetrics` zeroes it and REALIZED reads `$0.00` for the whole session however much was made. Dropping a value is never a safe default — an imperfect number beats a confident zero on a risk display.
 5. **TypeScript casts** — when casting `AccountRow` to a generic object, always use `as unknown as Record<string, unknown>` (double cast), not a direct cast
 6. **Runtime** — `/api/batch-update`, `/api/data`, `/api/debug/items` must NOT declare `export const runtime = 'edge'`. They run on the default Node.js runtime everywhere (Cloudflare, Netlify) since `@opennextjs/cloudflare` cannot bundle a mixed edge/node route set without extra config — declaring edge on these breaks the Cloudflare build (`OpenNext requires edge runtime function to be defined in a separate function`). Avoid Node.js-only APIs in these routes anyway so they stay portable. Auth routes under `/api/auth/*` intentionally use `export const runtime = 'nodejs'` for `@simplewebauthn/server` compatibility — that's fine, they're not part of this constraint.
 7. **Supabase client vs server** — never import `lib/supabase/server.ts` in client components. Use `lib/supabase/client.ts` for browser code only
 8. **Local build test** — always run `npm run build` (and `npm run cf:build` if the change touches API routes) locally before pushing to catch errors before they hit either host
 9. **`hidden` flag invariant** — `accounts.hidden` is owned exclusively by the sync-accounts auto-hide (there is NO manual-hide UI). batch-update MUST keep forcing `row.hidden = false` when it writes live data: an account actively sending data is live by definition. Never remove that line, and never add read-modify-write round-tripping of flags owned by another endpoint. Incident 2026-07-14: two live LFE accounts vanished from the dashboard because a partial live list during NT8 startup churn hid them, and batch-update's full-row upsert wrote the stale `hidden=true` back after sync-accounts un-hid them — stuck forever since sync only fires on list change. Manual recovery, if ever needed: POST the full live list to `functions/v1/sync-accounts` with the `X-Api-Key` header
 10. **Cloudflare deploy on this Windows machine** — plain `npx wrangler deploy` fails (`ERR_RUNTIME_FAILURE`: workerd access violation when wrangler delegates to `opennextjs-cloudflare deploy`). Use the rename workaround in PowerShell: `Rename-Item open-next.config.ts open-next.config.ts.bak; npx wrangler deploy; Rename-Item open-next.config.ts.bak open-next.config.ts` (after `npm run cf:build`)
+11. **A silent drop is a bug, not a safe default.** Three separate outages here shared one shape: something discarded data on a path that still returned success, so every indicator read healthy while nothing arrived. RLS returning `[]` instead of an error; unmapped ITEM_MAP names vanishing on arrival; `last_batch_ts` refusing every batch after a clock skew, answering `HTTP 200 processed:0`. When a code path throws data away, it must leave a trace the trader can reach — a named field in the response, a banner, a differing status. Never a bare `continue` or `return null` on the ingestion path.
+12. **`last_batch_ts` is the NT8 machine's clock, not the server's.** The ordering guard in `buildRow` ignores a stored value more than `CLOCK_SKEW_TOLERANCE_MS` into the server's future, because a clock that ran ahead (or corrected back after an NTP sync) would otherwise lock the account out permanently. Keep that escape hatch: losing one out-of-order write is survivable, losing all of them is not.
+13. **`buildRow` is duplicated** in `app/api/batch-update/route.ts` and `supabase/functions/batch-update/index.ts` and must stay byte-identical. Verify after editing either — the two ingestion paths silently diverging is the whole risk of the current fan-out design.
 
 ---
 
@@ -255,6 +259,153 @@ one malformed row blanked the entire page.
 > covered the Next.js hosts so it could never actually stop ingestion reaching
 > the edge function, and a stuck one was indistinguishable from an outage.
 > Emergency stop = disable the edge function from the Supabase dashboard.
+
+## What the NT8 addon actually sends (measured 2026-08-14)
+
+A diagnostic build printed every distinct `AccountItem` name on first sighting.
+This is ground truth, replacing inference from `nt_fields`:
+
+```
+UnrealizedProfitLoss   NetLiquidation   ExcessInitialMargin   ExcessIntradayMargin
+```
+
+- **No drawdown item is sent. At all.** No `TrailingDrawdownValue`,
+  `DrawdownAuto` or `DistDrawdown`. Every DD Buffer figure on the dashboard —
+  and therefore every `breached` flag, since `buildRow` derives status from
+  `dist_drawdown` — comes from the balance-guessed profile table in
+  `detectAccountProfile`. Still unverified against Apex's own number.
+- **No realized P&L item had appeared** as of the last check, though the account
+  had not traded since the addon was compiled and items print only on first
+  sighting. If `RealizedProfitLoss`/`GrossRealizedProfitLoss` never arrives after
+  a fill, that is the explanation for `REALIZED $0.00`, and it is an addon-side
+  gap rather than an ITEM_MAP one.
+- `ExcessInitialMargin` is unmapped, so it now shows up in the `unknown[]` field
+  of the batch-update response — which is what that field is for.
+- `ExcessIntradayMargin` maps to `tradovate_margin_used` but reads **identical to
+  NetLiquidation** (equity, not margin used). That mapping is meaningless as it
+  stands.
+
+## Replikanto: readable, but only through a private singleton
+
+Four reflection probes established this. Recorded so nobody repeats them.
+
+- **Its state IS exposed.** `Replikanto.Node`, `Replikanto.InternetNode` and
+  `Replikanto.SlaveAccount` carry `ConnectionStatus`, `Status`
+  (`NodeStatus.Off/Online/Away`), `Connected`, and `LiquidationState`.
+  `FollowerAccountStatus` is `Off/Checked/OutOfSync/Disarmed`.
+- **There is no public static entry point.** Every public static on those types
+  is an enum member or a localised UI string.
+- **The way in is a private static field on `ReplikantoFramework` whose type is
+  `ReplikantoFramework` itself** — the live singleton.
+- **The window route is a dead end.** `ReplikantoWindow.ConnectionStatus` is a
+  public property, but `Application.Current.Windows` never contains it:
+  NinjaTrader runs each window on its own UI thread, and that collection is
+  thread-affine to the main dispatcher. Confirmed empty with the window open.
+  Do not retry this.
+- **Cost of building on it:** the field names are obfuscated on Replikanto
+  8.1.5.1 and will change when FlowBots ships an update. Anything built here has
+  to fail to "unknown", never to a confident wrong answer, and should be
+  expected to need re-derivation after a Replikanto upgrade.
+
+> The NinjaScript files are NOT in this repo — they live in
+> `Documents\NinjaTrader 8\bin\Custom\AddOns\` on the trading machine, with no
+> version control. `AccountMonitor.cs` feeds the entire dashboard and has one
+> copy, no history, and no diff. Worth moving into `nt8/` here.
+
+## Open items (handoff — 2026-08-07)
+
+Everything below is merged to `main` and DEPLOYED (Cloudflare + all three
+Supabase edge functions). Total Accounts reading 5 confirmed the new build live.
+
+### Findings from live `nt_fields` (2026-08-07)
+All 5 accounts report: `unrealized_pnl`, `total_available`, `realized_pnl`,
+`tradovate_margin_used`.
+
+- **Good:** `unrealized_pnl` IS reported, so `CopierBanner`'s "not copying"
+  detection works as built. No addon change needed for it.
+- **`drawdown_auto` and `dist_drawdown` are NOT reported by any account.** Every
+  drawdown figure on the dashboard is the fallback profile's guess, never NT8's.
+
+**Suspected false breaches — do not trust the breach flags until checked.**
+4 of 5 accounts read `breached`. Working backwards from `...091`
+(balance 47,946.54, `dist_drawdown` -1391.04) the stored threshold must be
+49,337.58, which with `trailing_max` 2000 implies a `peak_balance` of
+**51,337.58**. If those accounts never actually reached ~51.3k, the breaches are
+computed, not real.
+
+Two candidate causes, both worth checking before trusting any of it:
+
+1. **`peak_balance` was poisoned by the CashValue bug.** Until this session,
+   `CashValue` could overwrite `NetLiquidation` in `total_available`. CashValue
+   excludes open-position P&L, so during a LOSING trade it reads HIGHER than true
+   equity — and `peak_balance` only ever moves up and is persisted. Fixing the
+   ingestion does not undo an inflated peak already in the table. With a correct
+   peak of 50,000, only two accounts sit marginally negative (-53.46 and -0.78),
+   not four at -1391.
+2. **The trailing-max bucket may be wrong.** `detectAccountProfile` gives
+   `PAAPEX`/`LFE` 50k accounts 2500 and everything else 2000. If Apex actually
+   applies 2500 to these `APEX…` accounts too, every threshold is 500 too high
+   and pushes accounts toward false breach. Verify against Apex's own figures.
+
+**Next step:** compare the dashboard's DD Buffer against what Apex/NinjaTrader
+shows for the same account. If they disagree, reset `peak_balance` (set it to
+the true high-water mark, or to the current balance to let it re-accumulate) and
+confirm the trailing-max bucket. Better still, have the addon subscribe to
+`TrailingDrawdownValue` → `tradovate_trailing_drawdown`, which is Apex's real
+number and removes the guessing entirely — the addon already sends
+`tradovate_margin_used`, so it is reaching those fields already.
+
+### Do first
+1. **Rotate `API_KEY`** — it was pasted into a chat transcript, so treat it as
+   public. Whoever holds it can write fake account data, fire fake phone alerts,
+   and read every balance via `/api/data`. Change it in all four places or
+   ingestion stops: Cloudflare Worker vars → `npx supabase secrets set API_KEY=…
+   --project-ref gvbtnsktudmgmpamkhnl` → Netlify vars (if still set) →
+   `AccountMonitor.cs`. Do NT8 last; expect 401s until all four agree.
+2. **Push local `main`.** A deploy was run from an unpushed working tree, so the
+   live build contained commits CI never saw. `origin/main` and production must
+   match before the auto-deploy is switched on, or GitHub will overwrite live
+   with a different build.
+3. **Check `nt_fields`** for the leader in `/api/data` (Safari, after Face ID *in
+   Safari* — the home-screen PWA has a separate cookie jar). If neither
+   `unrealized_pnl` nor `dollar_open` is listed, NT8 is not sending open P&L, so
+   `CopierBanner`'s "not copying" case can never fire and the addon needs to
+   subscribe to `UnrealizedProfitLoss`. The readiness warning and the ntfy
+   partial-fill alert work either way.
+
+### To finish the automation
+4. Add three repo secrets so deploys stop being manual: `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_ACCESS_TOKEN`. Until then `deploy.yml`
+   runs the tests and skips the deploy steps.
+5. Set **`NTFY_TOPIC`** in Cloudflare vars — unset means notifications are
+   silently off, though fills are still recorded.
+
+### Known, not yet done
+- **Column overlap**: a 4-digit P&L collides with Net Liq in the mobile list
+  row. Pre-existing. Left alone on request — no CSS changes for now.
+- **`ToastProvider`** subscribes to `trade_events`, which only `/api/trade-event`
+  writes. Until the NT8 addon posts fills there, in-page toasts never fire.
+- **NT8 addon changes** (not in this repo): POST one call per fill round to
+  `/api/trade-event` with `accounts[]` + `total_accounts`; subscribe to
+  `UnrealizedProfitLoss` if item 3 shows it missing.
+- **Netlify: builds paused, and worth deleting.** On 2026-08-07 twenty pushes to
+  main took the team account from 50% to 75% of its credits — Netlify rebuilds on
+  every push, and most of those pushes were tests, CI config and docs that
+  changed nothing it serves. `netlify.toml` now carries a `build.ignore` rule
+  that skips those; builds were also paused in the Netlify UI. Beyond the cost,
+  it has reportedly never worked (most likely its env vars were never set, so
+  every request 500s), and it is failover-only — it sees a batch only when BOTH
+  Cloudflare and the Supabase edge function fail, and if Supabase is down it
+  could not help anyway. Decide: fix it and verify, or delete the site.
+- **One writer, not three**: collapse the parallel fan-out to Supabase-primary
+  with Cloudflare as sequential failover. Removes the `last_batch_ts` race guard
+  and the hand-synced duplicate of `trading-logic.ts`. Needs an addon change.
+
+### Testing
+`npm test` (full, ~6 min) · `npm run test:unit` (~300ms) · `npm run sandbox`
+(mock stack on :3100, prints a phone URL). CI runs the lot on every push and is
+the source of truth — it caught two defects that passed locally, including the
+browser being hardcoded to the production database.
 
 ## Known Issues / History
 - Vercel was dropped from active hosting (account disabled, HTTP 402 billing issue) — the `vercel/react-server-components-cve-vu-7f5ap6` branch it auto-created is no longer kept in sync, left as historical

@@ -73,15 +73,33 @@ export async function until(label, check, { timeout = 20_000, interval = 250 } =
   throw new Error(`timed out after ${timeout}ms waiting for: ${label}`)
 }
 
-/** Waits until the dashboard has painted real account rows. */
-export async function waitForAccounts(page, { timeout = 25_000 } = {}) {
+/**
+ * Waits until the dashboard has painted real account rows AND their figures,
+ * and — when `viewMode` is given — until it is showing that layout.
+ */
+export async function waitForAccounts(page, { timeout = 25_000, viewMode = null } = {}) {
   return until(
-    'account rows to render',
+    viewMode ? `${viewMode} view with account rows and figures` : 'account rows and their figures to render',
     async () => {
       const text = await page.locator('body').innerText()
-      // Any account id, or an explicit "nothing to show" state — both mean the
-      // first load has resolved and it is safe to assert.
-      return /APEX|PAAPEX/.test(text) || /No accounts connected/.test(text)
+      // "Nothing to show" is a settled state too — and it renders no toggle,
+      // so there is no view mode to wait for either.
+      if (/No accounts connected/.test(text)) return true
+      // An account id alone is not enough: the id can paint from the server
+      // render while the figures are still a poll behind, which had a test
+      // assert on a balance that had not arrived yet. Require a formatted
+      // currency value as well, so the row is genuinely complete.
+      if (!/APEX|PAAPEX/.test(text) || !/\$[\d,]+\.\d{2}/.test(text)) return false
+      if (!viewMode) return true
+      // Complete rows are still not the RIGHT rows. AccountsGrid starts at
+      // 'card' and only adopts the saved mode in a mount effect, so a fully
+      // painted card view satisfies the checks above while a list-only figure
+      // (net liq) is nowhere on the page — which is exactly how CI failed on
+      // "renders every account with its figures" while passing locally. The
+      // toggle's title names the mode it would switch TO, so it identifies
+      // the mode currently rendered.
+      const other = viewMode === 'list' ? 'card' : 'list'
+      return (await page.locator(`button[title="Switch to ${other} view"]`).count()) > 0
     },
     { timeout },
   )

@@ -29,7 +29,7 @@ const minsAgo = (m) => new Date(Date.now() - m * 60_000).toISOString()
 async function open(opts = {}) {
   const { context, page, consoleErrors } = await openDashboard(browser, { appUrl: APP, secret: SECRET, ...opts })
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
-  await waitForAccounts(page)
+  await waitForAccounts(page, { viewMode: opts.viewMode ?? 'card' })
   return { context, page, consoleErrors }
 }
 

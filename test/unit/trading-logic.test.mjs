@@ -177,3 +177,77 @@ describe('emptyAccount', () => {
     assert.deepEqual(row.nt_fields, [])
   })
 })
+
+describe('realized P&L sources', () => {
+  test('net RealizedProfitLoss beats gross regardless of arrival order', () => {
+    for (const order of [
+      { GrossRealizedProfitLoss: 120, RealizedProfitLoss: 98 },
+      { RealizedProfitLoss: 98, GrossRealizedProfitLoss: 120 },
+    ]) {
+      const field = {}
+      const applied = {}
+      for (const [item, value] of Object.entries(order)) {
+        const f = ITEM_MAP[item]
+        const p = ITEM_PRIORITY[item] ?? 0
+        if (f in applied && applied[f] > p) continue
+        applied[f] = p
+        field[f] = value
+      }
+      assert.equal(field.realized_pnl, 98, `net wins for ${JSON.stringify(order)}`)
+    }
+  })
+
+  test('gross is used when the net figure never arrives', () => {
+    // The whole point: a connection that only sends the gross figure must show
+    // a number, not the $0.00 the daily rollover would otherwise leave behind.
+    assert.equal(ITEM_MAP.GrossRealizedProfitLoss, 'realized_pnl')
+    assert.ok((ITEM_PRIORITY.GrossRealizedProfitLoss ?? 0) < (ITEM_PRIORITY.RealizedProfitLoss ?? 0))
+  })
+})
+
+// ── staleness thresholds ────────────────────────────────────────────────────
+// Imported from the component because the whole point is that ONE definition
+// drives the dots, the offline banner and everything else. A copy here would
+// pass while the app used a different number.
+const { inTrade, staleThresholdMs, offlineThresholdMs } =
+  await import('../../lib/freshness.ts')
+
+describe('how old is too old depends on whether money is at risk', () => {
+  test('a flat account tolerates a long quiet spell', () => {
+    const flat = { dollar_open: 0, unrealized_pnl: 0 }
+    assert.equal(inTrade(flat), false)
+    assert.equal(staleThresholdMs(flat), 10 * 60_000, 'NT8 says nothing between trades')
+    assert.equal(offlineThresholdMs(flat), 30 * 60_000)
+  })
+
+  test('an open position tightens it by orders of magnitude', () => {
+    // The case this exists for: MNQ at $2/point, a 4-minute-old figure was
+    // $86 wrong on one contract and still rendered green.
+    const open = { dollar_open: -86, unrealized_pnl: -86 }
+    assert.equal(inTrade(open), true)
+    assert.ok(staleThresholdMs(open) <= 30_000, 'must flag within seconds, not minutes')
+    assert.ok(offlineThresholdMs(open) < 2 * 60_000)
+  })
+
+  test('a short position counts as in-trade too', () => {
+    assert.equal(inTrade({ dollar_open: 91.5 }), true)
+    assert.equal(inTrade({ dollar_open: -91.5 }), true)
+  })
+
+  test('either P&L field alone is enough', () => {
+    // dollar_open and unrealized_pnl are kept in sync by buildRow, but a row
+    // read straight from the database may carry only one.
+    assert.equal(inTrade({ unrealized_pnl: -12 }), true)
+    assert.equal(inTrade({ dollar_open: -12 }), true)
+    assert.equal(inTrade({}), false, 'missing fields must not read as in-trade')
+  })
+
+  test('in-trade is always stricter than flat, never the reverse', () => {
+    const flat = { dollar_open: 0 }, open = { dollar_open: 1 }
+    assert.ok(staleThresholdMs(open) < staleThresholdMs(flat))
+    assert.ok(offlineThresholdMs(open) < offlineThresholdMs(flat))
+    // A dot cannot go grey before it goes amber.
+    assert.ok(staleThresholdMs(open) < offlineThresholdMs(open))
+    assert.ok(staleThresholdMs(flat) < offlineThresholdMs(flat))
+  })
+})

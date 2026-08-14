@@ -15,8 +15,14 @@
 import { useEffect, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
 import { formatAge } from './AccountCard'
+import { inTrade, OFFLINE_FLAT_MS, OFFLINE_IN_TRADE_MS } from '@/lib/freshness'
 
-const HEARTBEAT_TIMEOUT_MS = 10 * 60_000 // 10 minutes — NT8 quiet between trades is normal
+// 10 minutes of silence is normal between trades — NT8 has nothing to say and
+// the addon drops to a 30s flush outside 9-1. With a position OPEN it is not
+// normal, and waiting ten minutes to mention it means ten minutes of a moving
+// P&L presented as current. Same thresholds the per-account dots use, so the
+// banner can never contradict a grey dot sitting under it.
+const timeoutFor = (positionOpen: boolean) => (positionOpen ? OFFLINE_IN_TRADE_MS : OFFLINE_FLAT_MS)
 
 export function HeartbeatMonitor() {
   const { accounts } = useRealtime()
@@ -39,8 +45,10 @@ export function HeartbeatMonitor() {
   }, 0)
   if (newest === 0) return null
 
+  // Any open position anywhere tightens this: the risk is per-desk, not
+  // per-account, and one live position is enough to make stale data expensive.
   const ageMs = now - newest
-  if (ageMs <= HEARTBEAT_TIMEOUT_MS) return null
+  if (ageMs <= timeoutFor(visible.some(inTrade))) return null
 
   return (
     <div className="bg-red-950/60 border-b border-red-800/50 text-red-300 text-xs font-medium px-4 py-2 flex items-center justify-center gap-2 text-center">

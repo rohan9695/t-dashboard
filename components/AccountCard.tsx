@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { DANGER_THRESHOLD, CAUTION_THRESHOLD, type AccountRow } from '@/lib/trading-logic'
+import { staleThresholdMs, type FreshnessRow } from '@/lib/freshness'
 
 export function fmt(n: number) {
   const v = n || 0
@@ -37,10 +38,13 @@ export function formatAge(seconds: number): string {
   return `${Math.floor(seconds / 86400)}d`
 }
 
-export function secondsAgo(iso: string, now = Date.now()): { text: string; stale: boolean } {
-  const s = Math.floor((now - new Date(iso).getTime()) / 1_000)
-  const stale = s >= 10 * 60 // stale after 10 min — between trades NT8 sends nothing
-  return { text: `${formatAge(s)} ago`, stale }
+export function secondsAgo(
+  iso: string,
+  now = Date.now(),
+  row: FreshnessRow = {},
+): { text: string; stale: boolean } {
+  const ms = now - new Date(iso).getTime()
+  return { text: `${formatAge(Math.floor(ms / 1_000))} ago`, stale: ms >= staleThresholdMs(row) }
 }
 
 const DASH = '——'
@@ -95,7 +99,7 @@ export function AccountRow({
   const dayPnl    = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
   const isBreached = status === 'breached'
 
-  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now, row)
   // isAged = last_update older than 10min (same threshold as HeartbeatMonitor)
   const isStale = isAged
 
@@ -287,7 +291,7 @@ export function MobileListRow({
   } = row
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
-  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now, row)
 
   // Connection state only — a breached account that is still reporting is live,
   // and saying so is more useful than colouring the dot red.
@@ -366,7 +370,7 @@ export function MobileAccountCard({
 
   const dayPnl     = (realized_pnl || 0) + (unrealized_pnl || dollar_open || 0)
   const isBreached = status === 'breached'
-  const { text: ageText, stale: isAged } = secondsAgo(last_update, now)
+  const { text: ageText, stale: isAged } = secondsAgo(last_update, now, row)
   const isStale = isAged
 
   // Connection state only.

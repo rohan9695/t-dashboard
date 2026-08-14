@@ -16,7 +16,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
-const API_KEY     = process.env.API_KEY ?? 'change-me-set-in-env-file'
+// Unset means "reject everything", never a published default. The old
+// fallback was a literal in this repo, so a host that forgot the variable
+// accepted a key anyone could read here — middleware happened to block it
+// first, but that left one layer holding a door that should not exist. The
+// Deno edge functions already fail closed this way; this matches them.
+const API_KEY = process.env.API_KEY ?? ''
 const NTFY_SERVER = process.env.NTFY_SERVER ?? 'https://ntfy.sh'
 const NTFY_TOPIC  = process.env.NTFY_TOPIC ?? ''
 
@@ -61,7 +66,9 @@ async function notify(opts: {
 
 export async function POST(req: NextRequest) {
   const key = req.headers.get('x-api-key') ?? req.headers.get('X-Api-Key')
-  if (key !== API_KEY) {
+  // !API_KEY matters as much as the comparison: with both sides empty an
+  // empty X-Api-Key header would compare equal and authenticate.
+  if (!API_KEY || key !== API_KEY) {
     return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 })
   }
 
