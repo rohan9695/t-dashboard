@@ -693,10 +693,79 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (st == "online") return "online";             // one live node is enough
                     if (best == null || st == "away") best = st;
                 }
-                if (!sawNode) return "unknown";
+                if (!sawNode)
+                {
+                    // One-time diagnostic: the singleton IS being found now (this
+                    // path is only reached past `fw == null` above), but nothing
+                    // one level down from it type-matches Node/InternetNode within
+                    // FindByTypeName's depth limit. Dump the framework instance's
+                    // own direct field VALUE types so the next attempt knows which
+                    // field actually holds the nodes, instead of guessing at depth.
+                    DumpInstanceFieldsOnce(fw, "AccountMonitor: fw found, no Node/InternetNode reachable — direct field value types on " + fw.GetType().FullName + ":");
+                    return "unknown";
+                }
                 return best ?? "unknown";
             }
             catch { return "unknown"; }
+        }
+
+        private static bool instanceDumpDone;
+
+        /// <summary>One-time diagnostic mirroring FindByTypeName's own traversal
+        /// (same depth, same Replikanto-namespace descend rule) but printing every
+        /// field's value type instead of filtering — so a failed search is
+        /// diagnosable from the SAME shape of walk that failed, not a guess.</summary>
+        private static void DumpInstanceFieldsOnce(object root, string header)
+        {
+            if (instanceDumpDone) return;
+            instanceDumpDone = true;
+            var sb = new StringBuilder(header);
+            DumpFields(root, 0, sb);
+            NinjaTrader.Code.Output.Process(sb.ToString(), NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+        }
+
+        private static void DumpFields(object root, int depth, StringBuilder sb)
+        {
+            if (root == null || depth > 2) return;
+            const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            FieldInfo[] fields;
+            try { fields = root.GetType().GetFields(F); } catch (Exception ex) { sb.Append("\n  (GetFields threw at depth ").Append(depth).Append(": ").Append(ex.Message).Append(')'); return; }
+
+            foreach (FieldInfo f in fields)
+            {
+                object v;
+                try { v = f.GetValue(root); } catch (Exception ex) { sb.Append('\n').Append(new string(' ', depth * 2 + 2)).Append("(threw: ").Append(ex.Message).Append(')'); continue; }
+                string indent = new string(' ', depth * 2 + 2);
+                if (v == null) { sb.Append('\n').Append(indent).Append(f.FieldType.FullName).Append(" = null"); continue; }
+
+                bool isCollection = !(v is string) && v is IEnumerable;
+                sb.Append('\n').Append(indent).Append(v.GetType().FullName).Append(isCollection ? " [collection]" : "");
+
+                string full = v.GetType().FullName ?? "";
+                bool descend = full.IndexOf("Replikanto", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (isCollection)
+                {
+                    int i = 0;
+                    try
+                    {
+                        foreach (object item in (IEnumerable)v)
+                        {
+                            if (item == null) continue;
+                            string itemFull = item.GetType().FullName ?? "";
+                            sb.Append('\n').Append(indent).Append("  [item] ").Append(itemFull);
+                            if (itemFull.IndexOf("Replikanto", StringComparison.OrdinalIgnoreCase) >= 0)
+                                DumpFields(item, depth + 1, sb);
+                            if (++i > 10) { sb.Append('\n').Append(indent).Append("  ...(truncated)"); break; }
+                        }
+                    }
+                    catch (Exception ex) { sb.Append('\n').Append(indent).Append("  (enum threw: ").Append(ex.Message).Append(')'); }
+                }
+                else if (descend)
+                {
+                    DumpFields(v, depth + 1, sb);
+                }
+            }
         }
 
         /// <summary>Walks an object's fields for instances whose TYPE name matches,
