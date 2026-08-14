@@ -527,18 +527,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                         req.Headers.Add("Authorization", "Bearer " + NtfyToken);
 
                     var resp = await httpClient.SendAsync(req).ConfigureAwait(false);
-                    // Print, not Debug.WriteLine: this alert already went missing
-                    // once from a failure nobody could see (Debug.WriteLine never
-                    // reaches the Output window — see nt8/README.md). Not worth
-                    // repeating that mistake on the one thing this file exists to
-                    // deliver.
+                    // Output.Process, not Print: this is a static method (Print is
+                    // an instance member, CS0120), and not Debug.WriteLine either —
+                    // this alert already went missing once from a failure nobody
+                    // could see (Debug.WriteLine never reaches the Output window —
+                    // see nt8/README.md). Not worth repeating that mistake on the
+                    // one thing this file exists to deliver.
                     if (!resp.IsSuccessStatusCode)
-                        Print("AccountMonitor: ntfy push failed, HTTP " + (int)resp.StatusCode);
+                        NinjaTrader.Code.Output.Process("AccountMonitor: ntfy push failed, HTTP " + (int)resp.StatusCode,
+                            NinjaTrader.NinjaScript.PrintTo.OutputTab1);
                 }
             }
             catch (Exception ex)
             {
-                Print("AccountMonitor: ntfy push error - " + ex.Message);
+                NinjaTrader.Code.Output.Process("AccountMonitor: ntfy push error - " + ex.Message,
+                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
             }
         }
 
