@@ -118,7 +118,10 @@ function buildRow(
 
   if (!anyKnown) return null // all items were unknown — nothing to write
 
-  enrichAccount(row, true)
+  // Fields THIS batch supplied — appliedPriority is already keyed by field
+  // name. The daily rollover needs "sent just now", not "ever sent"; nt_fields
+  // is append-only and cannot answer the first question.
+  enrichAccount(row, true, new Set(Object.keys(appliedPriority)))
   row.last_update = new Date().toISOString()
 
   // Same value on every account row in the batch — it's Replikanto's one link

@@ -128,6 +128,36 @@ describe('/api/batch-update', () => {
     assert.equal(row.replikanto_status, 'online', 'an older addon build must not erase the last known status')
   })
 
+  test('a new day clears P&L NT8 is no longer sending', async () => {
+    // Monday morning, Friday's realized P&L still on the row, and NT8 sending
+    // only NetLiquidation because there has been no fill yet. nt_fields still
+    // lists realized_pnl from Friday, and it is append-only — so the rollover
+    // used to treat the field as NT8-owned forever and never clear it. Friday's
+    // figure sat there looking live, because the balance beside it kept
+    // updating.
+    await seed(account('APEX1', 50603.24, {
+      nt_fields: ['total_available', 'realized_pnl'],
+      realized_pnl: 121.84, day_date: '01/01/2020',
+    }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 50603.24 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.realized_pnl, 0, "yesterday's realized P&L must not survive the rollover")
+  })
+
+  test('but a value NT8 sends in the same batch survives the rollover', async () => {
+    // The case the old guard existed for, and it still has to hold: zeroing a
+    // figure that arrived in this very batch would blank a live number.
+    await seed(account('APEX1', 50000, {
+      nt_fields: ['total_available', 'realized_pnl'],
+      realized_pnl: 121.84, day_date: '01/01/2020',
+    }))
+    await postJson('/api/batch-update', {
+      APEX1: { NetLiquidation: 50250, RealizedProfitLoss: 250 }, _ts: 2000,
+    })
+    const [row] = await storedAccounts()
+    assert.equal(row.realized_pnl, 250, 'a figure sent this batch is live, not carried over')
+  })
+
   test('sim accounts are ignored', async () => {
     await seed(account('APEXREAL', 50000))
     await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })
