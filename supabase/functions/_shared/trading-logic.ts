@@ -210,6 +210,7 @@ export interface AccountRow {
 export function computeTradovateMetrics(
   row: AccountRow,
   onlyMissing = true,
+  freshFields?: Set<string>,
 ): void {
   const avail = row.total_available || 0
   if (avail <= 0) return
@@ -247,13 +248,21 @@ export function computeTradovateMetrics(
   if (row.day_date !== today) {
     row.day_date = today
     row.day_start_balance = avail
-    // New trading day — clear P&L carried over from the previous session, but
-    // only where NT8 is not the one reporting it. NT8 rolls its own P&L over at
-    // the session boundary, so zeroing a value it just sent would blank a live
-    // number for the rest of the day.
-    if (!nt.has('realized_pnl'))   row.realized_pnl   = 0
-    if (!nt.has('unrealized_pnl')) row.unrealized_pnl = 0
-    if (!nt.has('dollar_open'))    row.dollar_open    = 0
+    // New trading day — clear P&L carried over from the previous session,
+    // EXCEPT anything NT8 supplied in this very batch, since zeroing a value it
+    // just sent would blank a live number for the rest of the day.
+    //
+    // "in this batch" is the important part. This used to test nt_fields, which
+    // is append-only: once NT8 sent RealizedProfitLoss even once, realized_pnl
+    // counted as NT8-owned forever and the rollover could never clear it. NT8
+    // only sends a realized item after a fill, so Friday's figure sat on the
+    // dashboard through the weekend and into Monday, looking live because
+    // NetLiquidation kept arriving alongside it. Ever-sent is not the same
+    // question as sent-just-now.
+    const owned = freshFields ?? nt
+    if (!owned.has('realized_pnl'))   row.realized_pnl   = 0
+    if (!owned.has('unrealized_pnl')) row.unrealized_pnl = 0
+    if (!owned.has('dollar_open'))    row.dollar_open    = 0
   }
 
   if (!nt.has('dist_to_daily_loss')) {
@@ -273,6 +282,7 @@ export function computeTradovateMetrics(
 export function enrichAccount(
   row: AccountRow,
   compute = true,
+  freshFields?: Set<string>,
 ): void {
   if (row.total_available) {
     row.net_liq = row.total_available
@@ -290,7 +300,7 @@ export function enrichAccount(
   }
 
   if (compute) {
-    computeTradovateMetrics(row, true)
+    computeTradovateMetrics(row, true, freshFields)
   }
 }
 
