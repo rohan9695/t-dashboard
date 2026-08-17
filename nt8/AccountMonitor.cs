@@ -555,54 +555,91 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         // ── REPLIKANTO STATUS ───────────────────────────────────────────────────
-        // Replikanto keeps no public static handle on its state, so the live
-        // objects are reached through a private static field on
-        // ReplikantoFramework whose type is ReplikantoFramework itself — the
-        // singleton — and then by walking its fields.
+        // Replikanto keeps no public static handle on its state.
         //
-        // Everything is matched by TYPE NAME, never by field name. Replikanto
-        // obfuscates member names (they are unprintable combining characters and
-        // will change on every release), but the public type names — Node,
-        // InternetNode, SlaveAccount — and the public properties on them are
-        // stable. Searching by type is what makes this survive an update.
+        // Confirmed 2026-08-14: ReplikantoFramework (the original, single guess
+        // at "the" singleton) IS reachable via a static field on itself, but its
+        // own instance fields are just NTMenuItems, a version stamp, and a timer
+        // — a NinjaTrader menu-integration wrapper, not the state holder. Rather
+        // than hardcode a second guess at which of Replikanto's ~190 loaded
+        // types holds the real singleton, every type in the Replikanto/FlowBots
+        // namespaces gets a turn: any static field anywhere in those namespaces
+        // whose value is itself Replikanto/FlowBots-owned becomes a root
+        // candidate, and each candidate is searched for Node/InternetNode.
+        //
+        // Matched by TYPE NAME, never by field name — Replikanto obfuscates
+        // member names (unprintable combining characters, will change on every
+        // release), but the public type names (Node, InternetNode, SlaveAccount)
+        // and their public properties are stable.
         //
         // Reports "unknown" whenever anything is missing. A copier status that
         // silently reads "connected" because reflection quietly failed would be
         // worse than no status at all, so every failure path lands on unknown.
-        private const string FrameworkType = "NinjaTrader.NinjaScript.AddOns.FlowBots.ReplikantoFramework";
+        private static List<object> replikantoRoots;
+        private static bool         rootsLookedUp;
 
-        // Cached: the singleton never changes for the life of the process, and
-        // this runs on every batch.
-        private static object frameworkInstance;
-        private static bool   frameworkLookedUp;
+        private static bool IsReplikantoNamespace(string ns) =>
+            ns != null && (
+                ns.StartsWith("Replikanto", StringComparison.OrdinalIgnoreCase) ||
+                ns.StartsWith("FlowBots", StringComparison.OrdinalIgnoreCase));
 
-        private static object GetFramework()
+        private static List<object> GetReplikantoRoots()
         {
-            if (frameworkLookedUp) return frameworkInstance;
-            frameworkLookedUp = true;
+            if (rootsLookedUp) return replikantoRoots;
+            rootsLookedUp = true;
+            var roots = new List<object>();
             try
             {
-                Type fw = null;
+                const BindingFlags STATIC_ALL =
+                    BindingFlags.NonPublic | BindingFlags.Public |
+                    BindingFlags.Static | BindingFlags.FlattenHierarchy;
+
                 foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     Type[] ts;
                     try { ts = a.GetTypes(); }
                     catch (ReflectionTypeLoadException ex) { ts = ex.Types ?? new Type[0]; }
                     catch { continue; }
-                    foreach (Type t in ts) if (t != null && t.FullName == FrameworkType) { fw = t; break; }
-                    if (fw != null) break;
-                }
-                if (fw == null) return null;
 
-                foreach (FieldInfo f in fw.GetFields(BindingFlags.NonPublic | BindingFlags.Static))
-                {
-                    if (f.FieldType != fw) continue;
-                    object v = f.GetValue(null);
-                    if (v != null) { frameworkInstance = v; break; }
+                    foreach (Type t in ts)
+                    {
+                        // Enums are the noise that swamped the first version of
+                        // this scan (confirmed 2026-08-14: 28 "roots" found, the
+                        // first 8 shown were all Replikanto.EnumMethod /
+                        // FollowerAccountStatus values) — every named enum
+                        // member is technically a static field whose value's
+                        // type trivially matches the namespace filter, and an
+                        // enum value can never hold a Node/InternetNode.
+                        if (t == null || t.IsEnum || !IsReplikantoNamespace(t.Namespace)) continue;
+
+                        FieldInfo[] fields;
+                        try { fields = t.GetFields(STATIC_ALL); } catch { continue; }
+
+                        foreach (FieldInfo f in fields)
+                        {
+                            object v;
+                            try { v = f.GetValue(null); } catch { continue; }
+                            if (v == null) continue;
+                            Type vt = v.GetType();
+                            if (vt.IsEnum || vt.IsPrimitive || vt == typeof(string)) continue;
+                            if (!IsReplikantoNamespace(vt.Namespace)) continue;
+                            if (!roots.Contains(v)) roots.Add(v);
+                        }
+                    }
                 }
             }
-            catch { /* stays null -> unknown */ }
-            return frameworkInstance;
+            catch (Exception ex)
+            {
+                // Behavior is unchanged either way (empty roots -> unknown) — this
+                // only adds visibility, replacing a bare catch{} that swallowed
+                // the exact exception that made the ReplikantoFramework-only
+                // version of this search fail silently for two rounds straight.
+                NinjaTrader.Code.Output.Process(
+                    "AccountMonitor: Replikanto root scan threw: " + ex.GetType().FullName + ": " + ex.Message,
+                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+            }
+            replikantoRoots = roots;
+            return roots;
         }
 
         /// <summary>
@@ -633,25 +670,105 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             try
             {
-                object fw = GetFramework();
-                if (fw == null) return "unknown";
+                List<object> roots = GetReplikantoRoots();
+                if (roots.Count == 0) return "unknown";
 
                 bool sawNode = false;
                 string best = null;
 
-                foreach (object node in FindByTypeName(fw, new[] { "Node", "InternetNode" }, 0))
+                foreach (object root in roots)
                 {
-                    sawNode = true;
-                    string st = PropString(node, "Status");          // NodeStatus: Off/Online/Away
-                    if (st == null) continue;
-                    st = st.ToLowerInvariant();
-                    if (st == "online") return "online";             // one live node is enough
-                    if (best == null || st == "away") best = st;
+                    foreach (object node in FindByTypeName(root, new[] { "Node", "InternetNode" }, 0))
+                    {
+                        sawNode = true;
+                        string st = PropString(node, "Status");          // NodeStatus: Off/Online/Away
+                        if (st == null) continue;
+                        st = st.ToLowerInvariant();
+                        if (st == "online") return "online";             // one live node is enough
+                        if (best == null || st == "away") best = st;
+                    }
                 }
-                if (!sawNode) return "unknown";
+                if (!sawNode)
+                {
+                    // One-time diagnostic: roots were found (this path only runs
+                    // past the empty-roots check above), but nothing within
+                    // FindByTypeName's depth limit, from ANY of them, type-matches
+                    // Node/InternetNode. Dump each root's own direct field VALUE
+                    // types so the next attempt knows what's actually reachable,
+                    // instead of another guess.
+                    DumpRootsOnce(roots);
+                    return "unknown";
+                }
                 return best ?? "unknown";
             }
             catch { return "unknown"; }
+        }
+
+        private static bool rootsDumpDone;
+
+        /// <summary>One-time diagnostic: for each candidate root (capped, in case
+        /// the scan turned up many), print its type name and mirror
+        /// FindByTypeName's own traversal (same depth, same descend rule) printing
+        /// every field's value type instead of filtering — so a failed search is
+        /// diagnosable from the SAME shape of walk that failed, not a guess.</summary>
+        private static void DumpRootsOnce(List<object> roots)
+        {
+            if (rootsDumpDone) return;
+            rootsDumpDone = true;
+            var sb = new StringBuilder("AccountMonitor: ").Append(roots.Count)
+                .Append(" Replikanto root(s) found, none reach Node/InternetNode:");
+            int shown = 0;
+            foreach (object root in roots)
+            {
+                sb.Append("\n[root] ").Append(root.GetType().FullName);
+                DumpFields(root, 0, sb);
+                if (++shown >= 15) { sb.Append("\n...(remaining roots omitted)"); break; }
+            }
+            NinjaTrader.Code.Output.Process(sb.ToString(), NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+        }
+
+        private static void DumpFields(object root, int depth, StringBuilder sb)
+        {
+            if (root == null || depth > 2) return;
+            const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            FieldInfo[] fields;
+            try { fields = root.GetType().GetFields(F); } catch (Exception ex) { sb.Append("\n  (GetFields threw at depth ").Append(depth).Append(": ").Append(ex.Message).Append(')'); return; }
+
+            foreach (FieldInfo f in fields)
+            {
+                object v;
+                try { v = f.GetValue(root); } catch (Exception ex) { sb.Append('\n').Append(new string(' ', depth * 2 + 2)).Append("(threw: ").Append(ex.Message).Append(')'); continue; }
+                string indent = new string(' ', depth * 2 + 2);
+                if (v == null) { sb.Append('\n').Append(indent).Append(f.FieldType.FullName).Append(" = null"); continue; }
+
+                bool isCollection = !(v is string) && v is IEnumerable;
+                sb.Append('\n').Append(indent).Append(v.GetType().FullName).Append(isCollection ? " [collection]" : "");
+
+                string full = v.GetType().FullName ?? "";
+                bool descend = full.IndexOf("Replikanto", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (isCollection)
+                {
+                    int i = 0;
+                    try
+                    {
+                        foreach (object item in (IEnumerable)v)
+                        {
+                            if (item == null) continue;
+                            string itemFull = item.GetType().FullName ?? "";
+                            sb.Append('\n').Append(indent).Append("  [item] ").Append(itemFull);
+                            if (itemFull.IndexOf("Replikanto", StringComparison.OrdinalIgnoreCase) >= 0)
+                                DumpFields(item, depth + 1, sb);
+                            if (++i > 10) { sb.Append('\n').Append(indent).Append("  ...(truncated)"); break; }
+                        }
+                    }
+                    catch (Exception ex) { sb.Append('\n').Append(indent).Append("  (enum threw: ").Append(ex.Message).Append(')'); }
+                }
+                else if (descend)
+                {
+                    DumpFields(v, depth + 1, sb);
+                }
+            }
         }
 
         /// <summary>Walks an object's fields for instances whose TYPE name matches,
@@ -661,6 +778,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             var found = new List<object>();
             if (root == null || depth > 2) return found;
+
+            // The root itself can already BE a match — confirmed 2026-08-14: the
+            // root scan found a live Replikanto.InternetNode instance directly,
+            // but this function only ever checked root's FIELDS for a match, never
+            // root itself, so it walked straight past the node into its own
+            // sub-fields (string lists, bool arrays) and found nothing.
+            foreach (string w in wantedTypeNames)
+            {
+                if (root.GetType().Name == w) { found.Add(root); return found; }
+            }
 
             const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
             FieldInfo[] fields;

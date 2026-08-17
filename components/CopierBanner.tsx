@@ -1,16 +1,22 @@
 'use client'
 // components/CopierBanner.tsx
-// Three copier problems, one banner, worst-first.
+// Two copier problems, one banner, worst-first.
 //
-// 0. REPLIKANTO REPORTED OFF — ground truth, not inference, so it outranks
-//    both checks below when known. The NT8 addon reads Replikanto's own link
-//    state via reflection (nt8/AccountMonitor.cs, ReadReplikantoStatus) and
-//    sends it as replikanto_status on every account row. Only 'off' triggers
-//    a banner — 'away'/'unknown' stay silent, since neither is a confident
-//    "broken" (the addon deliberately lands on 'unknown' on any reflection
-//    failure rather than guess, per CLAUDE.md's Replikanto section). This is
-//    the only one of the three that can name Replikanto itself as the cause;
-//    the other two only ever see its symptoms.
+// A third check — surfacing replikanto_status === 'off' directly — was live
+// for part of 2026-08-14 and is DISABLED as of the same day. Proven wrong in
+// the field: NT8's reader found a live Replikanto.InternetNode and correctly
+// read its Status as "off", but a real trade copied to both accounts in that
+// exact state. InternetNode most likely reflects Replikanto's connection to
+// its own cloud/licensing service, not the local leader→follower copy path —
+// a different thing that happened to share a name that sounded right.
+// replikanto_status is still stored (harmless, and the row shows the raw
+// value if inspected directly), just not surfaced as an alarm. Re-enabling
+// this needs the search widened to SlaveAccount (Connected bool,
+// FollowerAccountStatus Status — probed and visibly more relevant to "is
+// THIS follower actually receiving copies") and confirmed against another
+// real trade before it's trusted again. Per this file's own standing rule:
+// a confident wrong answer is worse than no answer, so this stays off until
+// verified, not just re-guessed.
 //
 // 1. NOT COPYING (during a trade) — the leader holds an open position and a
 //    live follower is still flat. The copy did not happen.
@@ -63,18 +69,6 @@ export function CopierBanner() {
   const leader = visible.find((a) => a.replikanto_role === 'leader')
   const now = Date.now()
   const stamp = (a: { last_update: string }) => new Date(a.last_update).getTime()
-
-  // ── 0. Replikanto reported off ────────────────────────────────────────────
-  // replikanto_status is the same value on every account row (one link, not
-  // per-account), so any visible row carries it — doesn't have to be the
-  // leader's row specifically.
-  if (visible.some((a) => a.replikanto_status === 'off')) {
-    return (
-      <Banner tone="danger" icon="🔌">
-        Replikanto reports OFF — NT8 says the copier itself is disconnected.
-      </Banner>
-    )
-  }
 
   // ── 1. Not copying ────────────────────────────────────────────────────────
   // Needs at least two visible accounts — there is nothing to copy between
