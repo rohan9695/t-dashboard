@@ -155,6 +155,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 SubscribeAll();
 
+                // Say up front whether a fill can actually reach the phone.
+                // Finding out at fill time is finding out too late, and this
+                // file ships with placeholders on purpose (the topic name IS
+                // the password), so a fresh copy onto the trading machine lands
+                // in exactly the broken state by default. Same reasoning as the
+                // dashboard's "not ready" banner: warn before money is at risk,
+                // not after.
+                WarnIfNtfyUnconfigured();
+
                 if (DebugDiscovery)
                     ProbeReplikanto();
 
@@ -282,6 +291,18 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         // "Live" = actually connected right now (the green dot in NT8's Accounts
         // panel), not just a saved/historical/demo/backtest account definition.
+        // Printed once at load so the Output window answers "will I get an alert
+        // if I trade right now?" without having to trade to find out.
+        private void WarnIfNtfyUnconfigured()
+        {
+            if (NtfyTopic == "REPLACE_WITH_REAL_NTFY_TOPIC" || string.IsNullOrEmpty(NtfyTopic))
+                Print("AccountMonitor: NO PHONE ALERTS - NtfyTopic is still the placeholder in this copy of "
+                    + "AccountMonitor.cs. Fills will still reach the dashboard, but nothing will reach your "
+                    + "phone. Set NtfyTopic (and NtfyToken) at the top of this file, then recompile.");
+            else
+                Print("AccountMonitor: phone alerts armed (ntfy topic configured).");
+        }
+
         // Account.All includes every account NT8 has ever known about, connected
         // or not — filtering on connection status (not name) is what keeps
         // old demo/backtest accounts from ever reaching the dashboard again.
@@ -514,7 +535,20 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static async Task SendNtfyAsync(string title, string body, string tags, bool urgent)
         {
-            if (NtfyTopic == "REPLACE_WITH_REAL_NTFY_TOPIC" || string.IsNullOrEmpty(NtfyTopic)) return;
+            // NOT a silent return, which is what this was. FlushRound prints
+            // "AccountMonitor FILL: ..." one line earlier, so the Output window
+            // showed the round detected and handed off while nothing whatsoever
+            // reached the phone — a discarded alert that looked exactly like a
+            // delivered one. See CLAUDE.md rule 11; this file's whole reason to
+            // exist is the push, so it is the last place that may drop quietly.
+            if (NtfyTopic == "REPLACE_WITH_REAL_NTFY_TOPIC" || string.IsNullOrEmpty(NtfyTopic))
+            {
+                NinjaTrader.Code.Output.Process(
+                    "AccountMonitor: FILL NOT PUSHED - NtfyTopic is still the placeholder in this copy of "
+                  + "AccountMonitor.cs. Set NtfyTopic (and NtfyToken) at the top of the file, then recompile.",
+                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+                return;
+            }
             try
             {
                 using (var req = new HttpRequestMessage(HttpMethod.Post, NtfyServer.TrimEnd('/') + "/" + NtfyTopic))

@@ -41,6 +41,19 @@ AddOns folder as **unsaved work** until it's copied back here and committed.
    not just the NT8 Output window — HTTP failures in this addon are logged
    via `Debug.WriteLine`, which never reaches the Output window, so a 401 or
    timeout is otherwise silent.
+5. Verify phone alerts survived the sync. On load the addon now prints one of:
+
+   ```
+   AccountMonitor: phone alerts armed (ntfy topic configured).
+   AccountMonitor: NO PHONE ALERTS - NtfyTopic is still the placeholder …
+   ```
+
+   This step exists because step 2 is easy to half-do: a real `ApiKey` with a
+   placeholder `NtfyTopic` gives a dashboard that updates perfectly and a phone
+   that never rings, and until this line was added the only symptom was silence.
+   `SendNtfyAsync` used to return without a word in that state, while
+   `FlushRound` still printed `AccountMonitor FILL: …` — so the Output window
+   showed a delivered round and nothing arrived.
 
 **NT8 → Repo (capturing a change made live):**
 1. Copy the AddOns folder's `AccountMonitor.cs` back over `nt8/AccountMonitor.cs`.
