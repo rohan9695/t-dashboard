@@ -125,14 +125,32 @@ function buildRow(
   // full-row upsert would otherwise round-trip that stale flag forever.
   row.hidden = false
 
-  if (
+  // A blown account is the one state that must never read healthy, and it did.
+  //
+  // The old test was `total_available > 0 && (buffer gone)`. That guard exists
+  // to stop a row which has never reported anything — all zeros, straight out
+  // of emptyAccount() via sync-accounts' toCreate — from flagging breached on
+  // sight. But it caught the opposite case too: when a prop firm liquidates a
+  // blown account, NT8 reports equity of 0, `0 > 0` is false, and the whole
+  // branch fell through to `active`. The worst account on the desk read as the
+  // healthiest one, right up until NT8 dropped it from its live list and
+  // sync-accounts hid it — so the breach never appeared at all.
+  //
+  // nt_fields answers the question the balance alone cannot: has NT8 ever
+  // actually reported equity here? If it has and the figure is <= 0, the
+  // account is gone. If it never has, there is nothing to judge.
+  //
+  // Testing equity directly matters as well as testing the buffers, because
+  // computeTradovateMetrics returns early on avail <= 0 — so dist_drawdown
+  // still holds whatever it read before the liquidation, quite possibly a
+  // healthy positive number.
+  const reportedEquity = row.nt_fields.includes('total_available')
+  const blown = reportedEquity && row.total_available <= 0
+  const bufferGone =
     row.total_available > 0 &&
     ((row.dist_drawdown ?? 0) <= 0 || (row.dist_to_daily_loss ?? 0) <= 0)
-  ) {
-    row.status = 'breached'
-  } else {
-    row.status = 'active'
-  }
+
+  row.status = blown || bufferGone ? 'breached' : 'active'
 
   return row
 }

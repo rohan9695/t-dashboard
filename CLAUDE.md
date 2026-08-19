@@ -229,6 +229,18 @@ readout. It auto-detects account size from balance:
 13. **`buildRow` is duplicated** in `app/api/batch-update/route.ts` and `supabase/functions/batch-update/index.ts` and must stay byte-identical. Verify after editing either — the two ingestion paths silently diverging is the whole risk of the current fan-out design.
 14. **Run the migration BEFORE deploying code that writes the column, and confirm it applied.** On 2026-08-14 the `replikanto_status` storage code shipped ahead of its migration and every live batch failed for ~16 minutes with `Could not find the 'replikanto_status' column of 'accounts' in the schema cache`. The trap is that **CI proves nothing here**: the mock database in `test/mocks/supabase.mjs` is schemaless, so it happily accepts any column and the suite goes green against a table shape that does not exist in production. A passing test run is not evidence the column is there. Apply the migration, confirm PostgREST's schema cache has caught up, and only then merge. The same applies in reverse — never drop a column while code still writes it.
 
+15. **A truthy test on a money field cannot tell "zero" from "unset".** Both
+   halves of the blown-account bug on 2026-08-19 were this one mistake.
+   `enrichAccount` had `if (row.total_available) … else if (row.net_liq)`, so an
+   account NT8 reported at equity `0` fell to the else-branch and had its
+   pre-blowup balance copied back over the zero. `buildRow` then gated the
+   breach check on `total_available > 0`, so `0 > 0` was false and the
+   liquidated account fell through to `active` — **the worst account on the
+   desk read as the healthiest**, right until sync-accounts hid it and the
+   breach was never displayed at all. `nt_fields` is the discriminator: it says
+   whether NT8 ever reported the field, which is the question a balance of zero
+   cannot answer. Reach for it before writing `if (someAmount)`.
+
 ---
 
 ## Degraded-mode behaviour (why the dashboard should never be blank)
@@ -429,6 +441,15 @@ browser being hardcoded to the production database.
 LEADER badge, sorting the leader to the top, and `CopierBanner`.
 
 `CopierBanner` shows two problems, worst first:
+
+A **blown** account is exempt from the readiness warning. It is hidden because
+the prop firm liquidated it, not because a link dropped, so "a trade now would
+reach 1 of 2" is a fact about an account that no longer exists rather than a
+problem to fix — and the 12h `RETIRED_MS` window meant it said so for the rest
+of the trading day. The evidence is the row's own last status: `batch-update`
+stamps `breached` the moment NT8 reports the equity gone, before sync-accounts
+gets around to hiding it. The exemption is narrow on purpose — a genuinely
+dropped account still warns even with a blown one beside it.
 
 **1. Not copying** (during a trade) — the leader holds an open position
 (`dollar_open != 0`) for longer than a 45s grace period while a live follower is

@@ -158,6 +158,53 @@ describe('/api/batch-update', () => {
     assert.equal(row.realized_pnl, 250, 'a figure sent this batch is live, not carried over')
   })
 
+  test('a blown account reads breached, not active', async () => {
+    // The failure this exists for: a prop firm liquidates the account, NT8
+    // reports equity of 0, and the old guard `total_available > 0 && …` made
+    // `0 > 0` false — so the branch fell through to 'active'. The worst
+    // account on the desk read as the healthiest, and NT8 dropped it from its
+    // live list moments later so the breach was never displayed at all.
+    await seed(account('APEX1', 49800))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 0 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.total_available, 0, 'the zero NT8 sent is data, not an absent value')
+    assert.equal(row.status, 'breached')
+  })
+
+  test('a zero equity is not resurrected from the net_liq alias', async () => {
+    // enrichAccount's `if (total_available) … else if (net_liq)` copied the
+    // PREVIOUS balance back over the zero, so the row kept showing the money
+    // the account had before it blew up and buildRow never saw a zero at all.
+    await seed(account('APEX1', 49800, { net_liq: 49800 }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 0 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.net_liq, 0, 'the alias must follow equity down, not drag it back up')
+  })
+
+  test('a stale positive DD buffer does not rescue a blown account', async () => {
+    // computeTradovateMetrics returns early on avail <= 0, so dist_drawdown
+    // still holds the healthy figure it had before the liquidation. The breach
+    // check must therefore test equity directly, not only the derived buffers.
+    await seed(account('APEX1', 49800, { dist_drawdown: 1800, dist_to_daily_loss: 800 }))
+    await postJson('/api/batch-update', { APEX1: { NetLiquidation: 0 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.ok(row.dist_drawdown > 0, 'precondition: the stale buffer still looks healthy')
+    assert.equal(row.status, 'breached')
+  })
+
+  test('an account that has never reported equity is not called breached', async () => {
+    // The case the `total_available > 0` guard was protecting, and it still has
+    // to hold: sync-accounts creates rows from emptyAccount() with every figure
+    // at zero. Flagging those on sight would breach every new account the
+    // moment NT8 first lists it.
+    await seed(account('APEXNEW', 0, {
+      nt_fields: [], net_liq: 0, dist_drawdown: 0, dist_to_daily_loss: 0,
+    }))
+    await postJson('/api/batch-update', { APEXNEW: { UnrealizedProfitLoss: 0 }, _ts: 2000 })
+    const [row] = await storedAccounts()
+    assert.equal(row.status, 'active', 'no equity ever reported means nothing to judge')
+  })
+
   test('sim accounts are ignored', async () => {
     await seed(account('APEXREAL', 50000))
     await postJson('/api/batch-update', { APEXREAL: { NetLiquidation: 50500 }, Sim101: { NetLiquidation: 99980 }, _ts: 2000 })

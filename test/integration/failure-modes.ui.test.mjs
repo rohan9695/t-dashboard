@@ -188,6 +188,45 @@ describe('knowing the desk is ready WITHOUT a trade', { skip }, () => {
     await context.close()
   })
 
+  test('a blown account is gone, not nagged about for the rest of the day', async () => {
+    // A liquidated account is hidden for a reason we can actually identify:
+    // batch-update stamped it 'breached' when NT8 reported the equity gone,
+    // before sync-accounts hid the row. It is not coming back, so "a trade now
+    // would reach 4 of 5" is not a problem to fix — and the 12-hour retirement
+    // window meant it said so until the next morning.
+    await seedDesk({ leaderOpen: 0, followerOpen: 0 })
+    await seed(account(FOLLOWERS[0], 0, {
+      replikanto_role: 'follower', dollar_open: 0, hidden: true, status: 'breached',
+    }))
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await page.waitForTimeout(2_000)
+    const text = await page.locator('body').innerText()
+    assert.doesNotMatch(text, /not reporting/i, 'a blown account is removed, not missing')
+    assert.doesNotMatch(text, new RegExp(FOLLOWERS[0]), 'and it is off the grid entirely')
+    await context.close()
+  })
+
+  test('a dropped account still warns even with a blown one beside it', async () => {
+    // The exemption above must be narrow. Losing one account to a breach does
+    // not make a genuinely dropped account acceptable.
+    await seedDesk({ leaderOpen: 0, followerOpen: 0 })
+    await seed(account(FOLLOWERS[0], 0, {
+      replikanto_role: 'follower', dollar_open: 0, hidden: true, status: 'breached',
+    }))
+    await seed(account(FOLLOWERS[1], 49000, {
+      replikanto_role: 'follower', dollar_open: 0, hidden: true,
+    }))
+
+    const { context, page } = await open({ viewMode: 'list' })
+    await until('the dropped account still warns',
+      async () => /not reporting/i.test(await page.locator('body').innerText()))
+    const text = await page.locator('body').innerText()
+    assert.match(text, /1 account not reporting/i, 'only the dropped one counts')
+    assert.match(text, /would reach 3 of 4/i, 'the blown account leaves the denominator too')
+    await context.close()
+  })
+
   test('a quiet desk is NOT mistaken for a dropped account', async () => {
     // Everything equally old — NT8 simply has nothing to say between trades.
     // An absolute staleness check would cry wolf here; a relative one must not.

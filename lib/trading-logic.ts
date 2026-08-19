@@ -283,7 +283,17 @@ export function enrichAccount(
   compute = true,
   freshFields?: Set<string>,
 ): void {
-  if (row.total_available) {
+  // net_liq is an alias of total_available and the two must stay equal. This
+  // was a plain truthy test — `if (row.total_available) … else if (row.net_liq)`
+  // — which cannot tell "equity is zero" apart from "equity was never set".
+  //
+  // When a prop firm liquidates a blown account NT8 reports equity of 0, that
+  // 0 fell into the else-branch, and the PREVIOUS balance was copied straight
+  // back over it. The row went on showing the money the account had before it
+  // blew up, and the breach check in buildRow never saw a zero to act on. A
+  // zero NT8 actually sent is data; only an absent value may be back-filled.
+  const equityKnown = !!row.total_available || !!row.nt_fields?.includes('total_available')
+  if (equityKnown) {
     row.net_liq = row.total_available
   } else if (row.net_liq) {
     row.total_available = row.net_liq

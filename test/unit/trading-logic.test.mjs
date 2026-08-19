@@ -147,6 +147,27 @@ describe('risk fields — NT8 is the source of truth', () => {
   })
 })
 
+describe('a liquidated account', () => {
+  test('a zero equity NT8 sent is kept, not back-filled from net_liq', () => {
+    // enrichAccount used `if (row.total_available) … else if (row.net_liq)`, a
+    // truthy test that cannot tell "equity is zero" from "equity was never
+    // set". A blown account reports 0, fell into the else-branch, and had its
+    // previous balance copied straight back over the top.
+    const row = settled('APEX1', 0, { net_liq: 49800 })
+    enrichAccount(row)
+    assert.equal(row.total_available, 0, 'the zero survives')
+    assert.equal(row.net_liq, 0, 'and the alias follows it down')
+  })
+
+  test('but a row that never reported equity still back-fills from net_liq', () => {
+    // The case the truthy test was there for — a legacy row carrying only the
+    // alias must still populate total_available.
+    const row = settled('APEX1', 0, { net_liq: 49800, nt_fields: [] })
+    enrichAccount(row)
+    assert.equal(row.total_available, 49800)
+  })
+})
+
 describe('daily rollover', () => {
   test('a new session clears P&L the app owns', () => {
     const row = settled('APEX1', 50000, { day_date: '01/01/2020', realized_pnl: 500, unrealized_pnl: 300, dollar_open: 300 })

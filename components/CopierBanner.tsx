@@ -106,9 +106,20 @@ export function CopierBanner() {
   // unaccounted for. Missing is worse than late, not exempt.
   //
   // Note this is about accounts NT8 stopped listing, whatever the reason.
-  // Deliberately closing or losing an account looks identical here, which is
-  // why RETIRED_MS exists — see above.
-  const missing = accounts.filter((a) => a.hidden && newest - stamp(a) <= RETIRED_MS)
+  // Deliberately closing an account looks identical here, which is why
+  // RETIRED_MS exists — see above.
+  //
+  // A BLOWN account is the one case we can identify rather than wait out. It
+  // is hidden because the prop firm liquidated it, not because a link dropped,
+  // and it is never coming back — so "a trade now would reach 1 of 2" is not a
+  // problem to fix, it is a fact about an account that no longer exists, and
+  // the old 12-hour retirement window meant it said so for the rest of the
+  // trading day. Its last stored status is the evidence: batch-update writes
+  // 'breached' the moment NT8 reports the equity gone, before sync-accounts
+  // gets around to hiding the row.
+  const missing = accounts.filter(
+    (a) => a.hidden && a.status !== 'breached' && newest - stamp(a) <= RETIRED_MS,
+  )
   const laggards = visible.filter((a) => newest - stamp(a) > LAG_MS)
   const gone = [...missing, ...laggards]
   if (gone.length === 0) return null
