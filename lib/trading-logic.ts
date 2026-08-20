@@ -80,11 +80,24 @@ const PAAPEX_LFE_PROFILES: [number, number, number, number, number][] = [
   [ 20000,  25000, 1500,  500,  25100],
 ]
 
-const APEX_50K_DEFAULT = {
-  starting_balance:  50000,
-  trailing_max:       2000,
-  daily_loss_limit:   1000,
-  safety_net_floor:  50100,
+// Falling off the end of the table means the balance is BELOW the smallest
+// bucket's floor (20,000) — an account that has drawn down hard, not a big one.
+// This used to return a 50K profile, which is the opposite reading: a 25K
+// account at 19,999 was relabelled 50K, its trailing allowance doubled from
+// 1,000 to 2,000, and its safety_net_floor jumped 25,100 -> 50,100, which
+// removes the cap on the threshold entirely. A drawdown is exactly when the
+// risk numbers must not start describing a different account, so the smallest
+// profile in the relevant table is used instead.
+const smallestProfile = (
+  profiles: [number, number, number, number, number][],
+): AccountProfile => {
+  const [, start, trail, dll, safety] = profiles[profiles.length - 1]
+  return {
+    starting_balance: start,
+    trailing_max:     trail,
+    daily_loss_limit: dll,
+    safety_net_floor: safety,
+  }
 }
 
 export interface AccountProfile {
@@ -111,7 +124,7 @@ export function detectAccountProfile(balance: number, accountId = ''): AccountPr
       }
     }
   }
-  return { ...APEX_50K_DEFAULT }
+  return smallestProfile(profiles)
 }
 
 // ── EMPTY ACCOUNT ────────────────────────────────────────────────────────────

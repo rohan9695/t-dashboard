@@ -272,3 +272,23 @@ describe('how old is too old depends on whether money is at risk', () => {
     assert.ok(staleThresholdMs(flat) < offlineThresholdMs(flat))
   })
 })
+
+describe('a balance below the smallest bucket', () => {
+  test('a drawn-down 25K account is not relabelled a 50K account', () => {
+    // Falling off the end of the table returned a 50K profile, so a 25K
+    // account at 19,999 had its trailing allowance doubled (1,000 -> 2,000)
+    // and its safety_net_floor moved 25,100 -> 50,100, which uncaps the
+    // threshold. A hard drawdown is exactly when the risk numbers must not
+    // start describing a different account.
+    const p = detectAccountProfile(19999, 'APEX3480290000095')
+    assert.equal(p.starting_balance, 25000)
+    assert.equal(p.trailing_max, 1000)
+    assert.equal(p.safety_net_floor, 25100)
+  })
+
+  test('and the PAAPEX/LFE table keeps its own smaller bucket', () => {
+    const p = detectAccountProfile(19999, 'PAAPEX3480290000007')
+    assert.equal(p.starting_balance, 25000)
+    assert.equal(p.trailing_max, 1500, 'PAAPEX 25K carries 1,500, not the APEX 1,000')
+  })
+})
