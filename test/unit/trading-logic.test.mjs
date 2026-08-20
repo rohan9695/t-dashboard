@@ -98,10 +98,16 @@ describe('open P&L', () => {
 })
 
 describe('account profiles', () => {
-  test('PAAPEX and LFE 50K carry a $2,500 trailing drawdown, not $2,000', () => {
-    assert.equal(detectAccountProfile(50000, 'PAAPEX3480290000007').trailing_max, 2500)
-    assert.equal(detectAccountProfile(50000, 'LFE123').trailing_max, 2500)
-    assert.equal(detectAccountProfile(50000, 'APEX3480290000089').trailing_max, 2000)
+  test('the trailing allowance depends on size only, never the id prefix', () => {
+    // There were two profile tables and they disagreed about the same account
+    // size: PAAPEX/LFE got 2,500 at 50K and 1,500 at 25K, everything else got
+    // 2,000 and 1,000. The PAAPEX/LFE figures match Apex's published trailing
+    // drawdowns, so the other table was stale and understated every buffer by
+    // 500 — reporting a breach 500 before Apex would.
+    for (const id of ['PAAPEX3480290000007', 'LFE123', 'APEX3480290000089']) {
+      assert.equal(detectAccountProfile(50000, id).trailing_max, 2500, id)
+      assert.equal(detectAccountProfile(25000, id).trailing_max, 1500, id)
+    }
   })
 
   test('size is detected from balance', () => {
@@ -122,15 +128,15 @@ describe('risk fields — NT8 is the source of truth', () => {
   test('a field NT8 never sent falls back to the profile calculation', () => {
     const row = settled('APEX1', 49247.14)
     enrichAccount(row, true)
-    assert.equal(row.drawdown_auto, 48000)
-    assert.equal(Math.round(row.dist_drawdown * 100) / 100, 1247.14)
+    assert.equal(row.drawdown_auto, 47500)
+    assert.equal(Math.round(row.dist_drawdown * 100) / 100, 1747.14)
   })
 
   test('a new equity high trails the threshold up, capping the buffer', () => {
     const row = settled('APEX1', 50750.25)
     enrichAccount(row, true)
-    assert.equal(row.drawdown_auto, 48750.25)
-    assert.equal(row.dist_drawdown, 2000, 'buffer caps at trailing_max on a new high')
+    assert.equal(row.drawdown_auto, 48250.25)
+    assert.equal(row.dist_drawdown, 2500, 'buffer caps at trailing_max on a new high')
   })
 
   test('daily loss remaining is computed from the day-start balance', () => {
@@ -282,13 +288,13 @@ describe('a balance below the smallest bucket', () => {
     // start describing a different account.
     const p = detectAccountProfile(19999, 'APEX3480290000095')
     assert.equal(p.starting_balance, 25000)
-    assert.equal(p.trailing_max, 1000)
+    assert.equal(p.trailing_max, 1500)
     assert.equal(p.safety_net_floor, 25100)
   })
 
-  test('and the PAAPEX/LFE table keeps its own smaller bucket', () => {
+  test('and a PAAPEX id lands on the same smallest bucket', () => {
     const p = detectAccountProfile(19999, 'PAAPEX3480290000007')
     assert.equal(p.starting_balance, 25000)
-    assert.equal(p.trailing_max, 1500, 'PAAPEX 25K carries 1,500, not the APEX 1,000')
+    assert.equal(p.trailing_max, 1500)
   })
 })

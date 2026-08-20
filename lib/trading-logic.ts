@@ -65,15 +65,26 @@ export const ITEM_PRIORITY: Record<string, number> = {
 
 // ── ACCOUNT SIZE PROFILES ────────────────────────────────────────────────────
 // (min_balance, starting, trailing_max, daily_loss_limit, safety_net_floor)
+//
+// There were two of these tables. A "PAAPEX/LFE" one carrying 2,500 at 50K and
+// 1,500 at 25K, and a general one carrying 2,000 and 1,000 for the same two
+// sizes — so the file disagreed with ITSELF about the trailing allowance on an
+// account of a given size, and which answer you got depended on the id prefix.
+//
+// The PAAPEX/LFE figures are the ones that match Apex's published trailing
+// drawdowns, so the general table was simply stale. The prefix does not change
+// the allowance — a 25K is a 25K — and the two tables were identical at 150K
+// and 100K already, so they are now one table.
+//
+// Consequence of the old split, and the reason this matters: an APEX 25K was
+// given a 1,000 allowance instead of 1,500, and an APEX 50K 2,000 instead of
+// 2,500. Both understate the buffer by 500, so the dashboard reported a breach
+// 500 before Apex would — which is the leading explanation for the four
+// simultaneous "breached" flags recorded in the 2026-08-07 handoff notes.
+//
+// If Apex's own figures ever disagree with these, THIS table is the one place
+// to change; nothing else hardcodes a trailing allowance.
 const ACCOUNT_SIZE_PROFILES: [number, number, number, number, number][] = [
-  [140000, 150000, 4000, 1500, 150100],
-  [ 90000, 100000, 3000, 1200, 100100],
-  [ 45000,  50000, 2000, 1000,  50100],
-  [ 20000,  25000, 1000,  500,  25100],
-]
-
-// PAAPEX and LFE 50K accounts have a $2,500 trailing drawdown (not $2,000)
-const PAAPEX_LFE_PROFILES: [number, number, number, number, number][] = [
   [140000, 150000, 4000, 1500, 150100],
   [ 90000, 100000, 3000, 1200, 100100],
   [ 45000,  50000, 2500, 1000,  50100],
@@ -107,12 +118,12 @@ export interface AccountProfile {
   safety_net_floor:  number
 }
 
-export function detectAccountProfile(balance: number, accountId = ''): AccountProfile {
-  const id = accountId.toUpperCase()
-  const profiles =
-    (id.startsWith('PAAPEX') || id.startsWith('LFE'))
-      ? PAAPEX_LFE_PROFILES
-      : ACCOUNT_SIZE_PROFILES
+// accountId is no longer used to pick a table — see the note above — but stays
+// in the signature because it is the natural hook for any genuinely
+// prefix-specific rule that turns up later, and every call site already passes
+// it.
+export function detectAccountProfile(balance: number, _accountId = ''): AccountProfile {
+  const profiles = ACCOUNT_SIZE_PROFILES
 
   for (const [minBal, start, trail, dll, safety] of profiles) {
     if (balance >= minBal) {
@@ -241,11 +252,22 @@ export function computeTradovateMetrics(
   peak = peak <= 0 ? Math.max(p.starting_balance, avail) : Math.max(peak, avail)
   row.peak_balance = peak
 
-  // Trailing threshold: never goes down, capped at safety floor
+  // Trailing threshold: peak minus the trailing allowance, floored at the
+  // account's initial threshold and capped at the safety floor.
+  //
+  // This used to fold the STORED threshold into the max as well
+  // (`Math.max(prevThreshold, peak - trail)`), which quietly made any wrong
+  // trailing allowance permanent: correcting the profile table could never
+  // bring a threshold already written to the row back down, so the correction
+  // would have applied to new accounts only and silently done nothing on every
+  // existing one. A fix that cannot reach the rows that are wrong is not a fix.
+  //
+  // Nothing is lost by dropping it. The ratchet it provided is already
+  // inherent: peak_balance only ever moves up, so `peak - trail` only ever
+  // moves up too. The threshold is now a pure function of (peak, profile),
+  // which is also what makes it self-healing.
   const initialThreshold = p.starting_balance - trail
-  let prevThreshold = row.drawdown_auto || 0
-  if (prevThreshold <= 0) prevThreshold = initialThreshold
-  let threshold = Math.max(prevThreshold, peak - trail)
+  let threshold = Math.max(initialThreshold, peak - trail)
   threshold = Math.min(threshold, safety)
 
   if (!nt.has('drawdown_auto')) row.drawdown_auto = threshold

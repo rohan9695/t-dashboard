@@ -22,7 +22,7 @@ describe('/api/batch-update', () => {
 
     const [row] = await storedAccounts()
     assert.equal(row.total_available, 49247.14)
-    assert.equal(Math.round(row.dist_drawdown * 100) / 100, 1247.14, 'risk buffer reflects real equity')
+    assert.equal(Math.round(row.dist_drawdown * 100) / 100, 1747.14, 'risk buffer reflects real equity')
   })
 
   test('open P&L reaches the dashboard fields', async () => {
