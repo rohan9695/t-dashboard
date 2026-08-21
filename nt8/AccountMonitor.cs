@@ -557,10 +557,44 @@ namespace NinjaTrader.NinjaScript.AddOns
                     req.Headers.Add("Title", title);
                     req.Headers.Add("Tags", tags);
                     req.Headers.Add("Priority", urgent ? "urgent" : "default");
-                    if (!string.IsNullOrEmpty(NtfyToken) && NtfyToken != "REPLACE_WITH_REAL_NTFY_TOKEN")
+                    bool sentWithToken = !string.IsNullOrEmpty(NtfyToken) && NtfyToken != "REPLACE_WITH_REAL_NTFY_TOKEN";
+                    if (sentWithToken)
                         req.Headers.Add("Authorization", "Bearer " + NtfyToken);
 
                     var resp = await httpClient.SendAsync(req).ConfigureAwait(false);
+
+                    // A dead token must not cost the alert. The token exists only
+                    // to escape ntfy's shared ANONYMOUS quota — it is an
+                    // optimisation, not a requirement, and publishing to this
+                    // topic works perfectly well without it. But an expired or
+                    // revoked token turns every push into a 401, so the addon
+                    // stopped delivering while a plain anonymous curl to the same
+                    // topic still succeeded. That split is exactly what made this
+                    // take days to find: the obvious test used no token and so
+                    // exercised the one path that was not broken.
+                    if ((resp.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                         resp.StatusCode == System.Net.HttpStatusCode.Forbidden) && sentWithToken)
+                    {
+                        NinjaTrader.Code.Output.Process(
+                            "AccountMonitor: ntfy REJECTED THE TOKEN (HTTP " + (int)resp.StatusCode
+                          + ") - retrying anonymously. Rotate NtfyToken at ntfy.sh > Account > Access Tokens.",
+                            NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+
+                        using (var retry = new HttpRequestMessage(HttpMethod.Post, NtfyServer.TrimEnd('/') + "/" + NtfyTopic))
+                        {
+                            retry.Content = new StringContent(body, Encoding.UTF8);
+                            retry.Headers.Add("Title", title);
+                            retry.Headers.Add("Tags", tags);
+                            retry.Headers.Add("Priority", urgent ? "urgent" : "default");
+                            var retryResp = await httpClient.SendAsync(retry).ConfigureAwait(false);
+                            if (!retryResp.IsSuccessStatusCode)
+                                NinjaTrader.Code.Output.Process(
+                                    "AccountMonitor: anonymous ntfy retry also failed, HTTP " + (int)retryResp.StatusCode,
+                                    NinjaTrader.NinjaScript.PrintTo.OutputTab1);
+                        }
+                        return;
+                    }
+
                     // Output.Process, not Print: this is a static method (Print is
                     // an instance member, CS0120), and not Debug.WriteLine either —
                     // this alert already went missing once from a failure nobody
