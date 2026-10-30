@@ -1,4 +1,5 @@
 // app/page.tsx
+import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { createServiceClient } from '@/lib/supabase/server'
 import { type AccountRow } from '@/lib/trading-logic'
@@ -75,9 +76,17 @@ export default async function DashboardPage() {
                 <SummaryBar />
 
                 <section>
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-3">
-                    All Accounts
-                  </h2>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                      All Accounts
+                    </h2>
+                    <Link
+                      href="/summary"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-[11px] font-medium active:bg-zinc-700 transition-colors min-h-[36px]"
+                    >
+                      Daily summary →
+                    </Link>
+                  </div>
                   <AccountsGrid />
                 </section>
               </main>
