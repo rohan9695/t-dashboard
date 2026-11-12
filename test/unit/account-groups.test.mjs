@@ -1,7 +1,7 @@
 // test/unit/account-groups.test.mjs
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { groupOf, dayPnl, summarize, sortByPnl, shortId, foldGroups, formatSigned, formatBalance } from '../../lib/account-groups.ts'
+import { groupOf, dayPnl, summarize, sortByPnl, shortId, foldGroups, formatSigned, formatBalance, listRank, PINNED_ACCOUNT } from '../../lib/account-groups.ts'
 
 describe('groupOf', () => {
   test('PA, Apex and Lucid prefixes land in their own groups', () => {
@@ -125,5 +125,37 @@ describe('share image helpers', () => {
     assert.equal(formatSigned(0), '+$0.00')
     assert.equal(formatBalance(25274.38), '$25,274')
     assert.equal(formatBalance(-1500), '-$1,500')
+  })
+})
+
+describe('listRank (main dashboard order)', () => {
+  const r = (account_id, replikanto_role = null) => ({ account_id, replikanto_role })
+
+  test('leader, then the pinned account, then PA, then everything else', () => {
+    assert.equal(listRank(r('APEX0001', 'leader')), 0)
+    assert.equal(listRank(r('APEX2330283000044')), 1)
+    assert.equal(listRank(r('PAAPEX3480290000010')), 2)
+    assert.equal(listRank(r('APEX3480290000089')), 3)
+    assert.equal(listRank(r('LFE05068171260003')), 3)
+  })
+
+  test('the pinned id is matched anywhere in the name, in any case', () => {
+    assert.equal(PINNED_ACCOUNT, '2330283')
+    assert.equal(listRank(r('lfe2330283x')), 1)
+    assert.equal(listRank(r('PAAPEX2330283000001')), 1, 'pinned outranks PA')
+  })
+
+  test('a leader outranks the pinned account and PA', () => {
+    assert.equal(listRank(r('PAAPEX2330283000001', 'leader')), 0)
+  })
+
+  test('a follower role or a missing role changes nothing', () => {
+    assert.equal(listRank(r('PAAPEX1', 'follower')), 2)
+    assert.equal(listRank({ account_id: 'PAAPEX1' }), 2)
+  })
+
+  test('an odd or empty id ranks last instead of throwing', () => {
+    assert.equal(listRank(r('')), 3)
+    assert.equal(listRank({ account_id: undefined }), 3)
   })
 })

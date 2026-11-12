@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRealtime } from './RealtimeProvider'
 import { AccountRow, MobileAccountCard, MobileListRow } from './AccountCard'
 import { offlineThresholdMs } from '@/lib/freshness'
+import { listRank } from '@/lib/account-groups'
 import { ColumnPicker, ALL_COLUMNS } from './ColumnPicker'
 import type { ColumnDef } from './ColumnPicker'
 import { RefreshButton } from './RefreshButton'
@@ -83,13 +84,15 @@ export function AccountsGrid() {
     }
   }, [])
 
-  // Sorted: leader first, then active followers (by account_id), then offline
+  // Sorted: leader, then the pinned live account, then PA accounts (see
+  // listRank), then the rest — within each of those, active before offline,
+  // then by account_id.
   // Hidden accounts (no longer reported by NT8) are excluded entirely — never
   // hard-deleted server-side, just kept out of view. See /api/sync-accounts.
   const sorted = accounts.filter((a) => !a.hidden).sort((a, b) => {
-    const aLeader = a.replikanto_role === 'leader' ? 0 : 1
-    const bLeader = b.replikanto_role === 'leader' ? 0 : 1
-    if (aLeader !== bLeader) return aLeader - bLeader
+    const aRank = listRank(a)
+    const bRank = listRank(b)
+    if (aRank !== bRank) return aRank - bRank
     const aOff = isOffline(a)
     const bOff = isOffline(b)
     if (aOff !== bOff) return aOff ? 1 : -1

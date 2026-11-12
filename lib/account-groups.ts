@@ -1,6 +1,7 @@
 // lib/account-groups.ts
-// Pure helpers for the read-only grouped summary page (/summary). Nothing here
-// is imported by the main dashboard, the API routes or the edge functions.
+// Pure helpers for the grouped summary page (/summary) and for how the main
+// dashboard orders its rows (`listRank`). Display only: nothing here is imported
+// by the API routes or the edge functions, and nothing here touches stored data.
 
 export interface AccountGroup {
   key: string
@@ -28,6 +29,25 @@ export function groupOf(accountId: string): AccountGroup {
   if (id.startsWith('LFE') || id.startsWith('LFF')) return LUCID
   const letters = /^[A-Z]+/.exec(id)?.[0] ?? 'OTHER'
   return { key: letters, label: `${letters} Accounts`, order: 99 }
+}
+
+/** Any account whose name contains this is pinned right after the leader. */
+export const PINNED_ACCOUNT = '2330283'
+
+/**
+ * Where an account sits in the main dashboard list, lowest first:
+ * 0 leader, 1 the pinned live account, 2 PA accounts, 3 everything else.
+ *
+ * Rank outranks the offline-last rule in AccountsGrid on purpose: the pinned
+ * account and the PA accounts stay at the top even when one goes quiet — a
+ * quiet account that has fallen to the bottom is easy to miss.
+ */
+export function listRank(row: { account_id: string; replikanto_role?: string | null }): number {
+  if (row.replikanto_role === 'leader') return 0
+  const id = (row.account_id || '').toUpperCase()
+  if (id.includes(PINNED_ACCOUNT)) return 1
+  if (groupOf(id).key === 'PA') return 2
+  return 3
 }
 
 export interface PnlRow {
